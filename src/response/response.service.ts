@@ -10,7 +10,7 @@ const REPO_MODELS = 'REPO_MODELS';
 export class ResponseService {
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis,
-    @Inject(REPO_MODELS) private readonly modelContainer,
+    @Inject(REPO_MODELS) readonly modelContainer,
   ) {}
   /**
    * Flow:

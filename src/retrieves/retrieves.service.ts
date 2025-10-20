@@ -1,8 +1,10 @@
+import { createAgent } from '@inngest/agent-kit';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { EmbeddingsService } from 'src/embeddings/embeddings.service';
 import { ResponseService } from 'src/response/response.service';
+import { AIResponse } from 'src/response/response.type';
 
 @Injectable()
 export class RetrievesService {
@@ -26,7 +28,11 @@ export class RetrievesService {
   }
 
   async handleChat({ message }: { message: string }) {
-    const chatMessage = (message || '').trim();
+
+    // Correct the message by ai agent for the correctness
+    const correctedMessage = await this.correctMessage(message);
+    
+    const chatMessage = (correctedMessage || '').trim();
     if (!chatMessage) throw new Error('Message is required');
 
     try {
@@ -109,4 +115,47 @@ export class RetrievesService {
 
     return { combinedContent };
   }
+
+  // Ai Agent to correct the user message for better response
+  async correctMessage(message: string) {
+  // Get the fallback model
+  const getFallbackModel = this.responseService.modelContainer.getFallbackModel;
+  const firstModel = getFallbackModel ? getFallbackModel(0) : undefined;
+
+  // Construct the prompt
+  const prompt = `You are an AI assistant that preprocesses a user's message before retrieving relevant documents from the database.
+
+Instructions:
+- Correct grammar, spelling, and punctuation in the user's message.
+- Rephrase it to be logically clear and concise.
+- Preserve the original meaning.
+- Return only one final corrected message, with no explanations or additional text.
+- The message should be formatted and ready for document retrieval in Supabase.
+
+User's Original Message:
+"${message}"
+`;
+
+
+  // Create the agent
+  const agent = createAgent({
+    model: firstModel,
+    name: 'AI Chat Corrector',
+    description: 'An AI assistant that grammatically corrects user messages and helps retrieve documents from a vector database.',
+    system: prompt,
+  });
+
+  if (!agent) throw new Error('Agent creation failed.');
+
+  // Run the agent
+  const aiResponse = (await agent.run(prompt)) as AIResponse;
+
+  // Extract the corrected message
+  const aiMessage =
+    aiResponse.output?.[0]?.content ??
+    message;
+  // console.log('Corrected Message:', aiMessage);
+  return aiMessage;
+}
+
 }
