@@ -3,6 +3,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { EmbeddingsModule } from './embeddings/embeddings.module';
 import { ConfigModule } from '@nestjs/config';
+import { RetrievesModule } from './retrieves/retrieves.module';
+import { ResponseModule } from './response/response.module';
 
 @Module({
   imports: [
@@ -10,6 +12,8 @@ import { ConfigModule } from '@nestjs/config';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RetrievesModule,
+    ResponseModule,
   ],
   controllers: [AppController],
   providers: [AppService],

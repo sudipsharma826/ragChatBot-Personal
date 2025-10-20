@@ -22,7 +22,7 @@ export class AuthGuard implements CanActivate {
     return this.validateRequest(request);
   }
 
-  private validateRequest(request: any): boolean {
+  private validateRequest(request: { query: { secret: string } }): boolean {
     // Get secret from query parameters
     const secret = request.query.secret;
     if (!secret) {

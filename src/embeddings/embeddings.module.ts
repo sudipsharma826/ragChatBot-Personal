@@ -9,5 +9,6 @@ import { ConfigModule } from '@nestjs/config';
   ],
   controllers: [EmbeddingsController],
   providers: [EmbeddingsService],
+  exports: [EmbeddingsService], //for using the embedding service by the another module
 })
 export class EmbeddingsModule {}

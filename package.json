@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@inngest/agent-kit": "^0.13.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -28,6 +29,7 @@
     "@supabase/supabase-js": "^2.75.1",
     "axios": "^1.12.2",
     "crypto": "^1.0.1",
+    "ioredis": "^5.8.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

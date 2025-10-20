@@ -9,7 +9,7 @@ export class EmbeddingsController {
   @Get('data') ///embeddings/data in get method
   async getDataAndEmbed() {
     //check supabase connection 
-    const isConnected: Promise<boolean> = this.embeddingsService.testSupabaseConnection();
+    const isConnected = this.embeddingsService.testSupabaseConnection();
     if(await isConnected) {
       console.log('Supabase connection successful');
       return this.embeddingsService.refreshEmbeddings();
