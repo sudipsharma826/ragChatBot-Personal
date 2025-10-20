@@ -5,6 +5,7 @@ import { EmbeddingsModule } from './embeddings/embeddings.module';
 import { ConfigModule } from '@nestjs/config';
 import { RetrievesModule } from './retrieves/retrieves.module';
 import { ResponseModule } from './response/response.module';
+import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ResponseModule } from './response/response.module';
     }),
     RetrievesModule,
     ResponseModule,
+    UserModule,
   ],
   controllers: [AppController],
   providers: [AppService],

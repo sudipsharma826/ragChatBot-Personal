@@ -1,10 +1,11 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { RetrievesService } from './retrieves.service';
+import { ChatGuard } from './retrieves.guard';
 
 @Controller('retrieves')
 export class RetrievesController {
   constructor(private readonly retrievesService: RetrievesService) {}
-
+  @UseGuards(ChatGuard)
   @Post('chat')
   handleChat(@Body('message') message: string) {
     return this.retrievesService.handleChat({ message });
