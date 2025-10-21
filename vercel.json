@@ -1,21 +1,9 @@
 {
-    "version": 2,
-    "builds": [
-        {
-            "src": "dist/main.js",
-            "use": "@vercel/node"
-        }
-        ],
-    "routes": [
-        {
-            "src": "/(.*)",
-            "dest": "dist/main.js",
-            "methods": ["GET", "POST", "PUT", "DELETE"],
-            "headers": {
-                "Access-Control-Allow-Origin": "*"
-            }
-        }
-    
-    ],
-    "outputDirectory": "dist"
+  "version": 2,
+  "builds": [
+    { "src": "api/index.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "api/index.ts" }
+  ]
 }
