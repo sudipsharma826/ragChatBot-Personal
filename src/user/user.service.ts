@@ -51,7 +51,7 @@ export class UserService {
   const existingOtp = await this.redis.get(`otp:${email}`);
   if (existingOtp) {
     return {
-      status: 'wait',
+      status: '202',
       message: `An OTP has already been sent to ${email}. Please wait for 5 minutes before requesting a new one.`,
     };
   }
@@ -77,7 +77,7 @@ export class UserService {
   });
 
   return {
-    status: 'success',
+    status: '200',
     message: `OTP has been sent to ${email}. Please verify within 5 minutes.`,
   };
 }
@@ -105,18 +105,20 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto) {
     // Remove OTP from Redis
     await this.redis.del(`otp:${email}`);
 
-    // 🔹 Save to database (pseudo code)
+    // 🔹 Upsert to database: update verified_at if email exists, insert otherwise
     const { error } = await this.supabase
-    .from('verified_users')
-    .upsert({
-      email,
-      verified_at: new Date().toISOString(),
-    });
+      .from('verified_users')
+      .upsert([
+        {
+          email,
+          verified_at: new Date().toISOString(),
+        }
+  ], { onConflict: 'email' });
 
-  if (error) {
-    console.error('Supabase insert error:', error);
-    return { status: 'error', message: 'Failed to save verification record.' };
-  }
+    if (error) {
+      console.error('Supabase upsert error:', error);
+      return { status: 'error', message: 'Failed to save verification record.' };
+    }
 
   // Generate a Json Web Token (JWT) 
     const secret = this.config.get<string>('JWT_SECRET');
@@ -127,7 +129,7 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto) {
     await this.redis.setex(`token:${email}`, 86400, token); // 86400 seconds = 24 hours
 
     return {
-        status: 'success',
+        status: '200',
         message: 'OTP verified successfully',
         token,
     };

@@ -2,9 +2,9 @@ import { createAgent } from '@inngest/agent-kit';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { EmbeddingsService } from 'src/embeddings/embeddings.service';
-import { ResponseService } from 'src/response/response.service';
-import { AIResponse } from 'src/response/response.type';
+import { EmbeddingsService } from '../embeddings/embeddings.service';
+import { ResponseService } from '../response/response.service';
+import { AIResponse } from '../response/response.type';
 
 @Injectable()
 export class RetrievesService {
@@ -54,8 +54,11 @@ export class RetrievesService {
         response: responseByLLM,
       };
     } catch (err) {
-      console.error('❌ handleChat failed:', err?.message || err);
-      throw new Error(err?.message || 'Failed to handle chat request');
+      const errorMsg = typeof err === 'object' && err !== null && 'message' in err && typeof (err as any).message === 'string'
+        ? (err as any).message
+        : String(err);
+      console.error('❌ handleChat failed:', errorMsg);
+      throw new Error(errorMsg || 'Failed to handle chat request');
     }
   }
 

@@ -3,11 +3,12 @@ import { IsEmail, IsNotEmpty } from 'class-validator';
 
 export class SendOtpDto {
   @IsEmail()
-  email: string;
+  email!: string;
 }
+
 export class VerifyOtpDto {
   @IsEmail()
-  email: string;
+  email!: string;
   @IsNotEmpty()
-  otp: string;
+  otp!: string;
 }
