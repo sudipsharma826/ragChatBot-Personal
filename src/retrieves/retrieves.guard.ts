@@ -39,6 +39,13 @@ export class ChatGuard implements CanActivate {
       if (storedToken !== token) {
         return false;
       }
+      // attach the email to the request so controllers can read it
+      try {
+        const req = context.switchToHttp().getRequest();
+        req.user = { email };
+      } catch (e) {
+        console.error('Error attaching user to request:', e);
+      }
       console.log('✅ ChatGuard passed for email:', email);
       return true;
     } catch (error) {

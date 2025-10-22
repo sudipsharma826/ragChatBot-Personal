@@ -17,7 +17,7 @@ export class EmbeddingsService {
     const url = this.config.get<string>('SUPABASE_URL');
     const key = this.config.get<string>('SUPABASE_ANON_KEY');
     if (!url || !key) throw new Error('Supabase URL and Key are required');
-    console.log('Supabase URL and Key found', url, key);
+    // console.log('Supabase URL and Key found', url, key);
     this.supabase = createClient(url, key);
   }
 

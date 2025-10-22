@@ -23,4 +23,11 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   }
+  ,
+  "exclude": [
+    "nestjs/**",
+    "test/**",
+    "dist/**",
+    "node_modules/**"
+  ]
 }

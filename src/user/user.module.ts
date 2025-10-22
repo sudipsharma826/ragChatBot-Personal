@@ -4,6 +4,7 @@ import { UserController } from './user.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { createClient } from '@supabase/supabase-js';
+import { ChatGuard } from 'src/retrieves/retrieves.guard';
 
 const REDIS_CLIENT = 'REDIS_CLIENT';
 const Supabase = 'SUPABASE_CLIENT';
@@ -32,6 +33,7 @@ const Supabase = 'SUPABASE_CLIENT';
       inject: [ConfigService],
     },
     UserService,
+    ChatGuard,
   ],
 })
 export class UserModule {}

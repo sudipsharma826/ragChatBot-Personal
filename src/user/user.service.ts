@@ -134,4 +134,22 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto) {
         token,
     };
 }
+
+  // Delete chat history for a user (stored in Redis list `chat:{email}`)
+  async deleteChatHistory(email: string) {
+    if (!email) {
+      return { status: 'error', message: 'Email is required' };
+    }
+
+    try {
+      // delete Redis list where chat messages are stored
+      await this.redis.del(`chat:${email}`);
+
+
+      return { status: '200', message: 'Chat history deleted' };
+    } catch (error) {
+      console.error('Failed to delete chat history:', error);
+      return { status: 'error', message: 'Failed to delete chat history' };
+    }
+  }
 }
