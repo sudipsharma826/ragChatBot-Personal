@@ -3,7 +3,6 @@ import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { createClient } from '@supabase/supabase-js';
 import {
-  normalizeEmbeddingDimensions,
   createTextChunks,
 } from './embeddings.utils';
 import { ProfileData } from './embeddings.types';
@@ -52,12 +51,8 @@ export class EmbeddingsService {
         embedding = data;
       }
 
-      if (embedding.length !== 384) {
-        embedding = normalizeEmbeddingDimensions(embedding, 384);
-      }
-
       return embedding;
-    } catch (err: any) {
+    } catch (err) {
       console.error('Embedding generation failed:', err?.message ?? err);
     }
   }
