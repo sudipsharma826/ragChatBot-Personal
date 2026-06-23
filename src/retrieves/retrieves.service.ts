@@ -6,7 +6,7 @@ import { ResponseService } from '../response/response.service';
 
 type HandleChatInput = {
   message: string;
-  sessionId?: string;
+  sessionId: string;
 };
 
 type RetrievedDocumentsResult = {
@@ -56,7 +56,7 @@ export class RetrievesService {
       const responseByLLM = await this.responseService.generateReponse({
         combinedContent,
         message: chatMessage,
-        sessionId: sessionId ?? 'default-session-id',
+        sessionId: sessionId,
       });
 
       return {

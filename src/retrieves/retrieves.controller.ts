@@ -7,7 +7,7 @@ export class RetrievesController {
   constructor(private readonly retrievesService: RetrievesService) {}
   @UseGuards(ChatGuard)
   @Post('chat')
-  handleChat(@Body('message') message: string, @Body('sessionId') sessionId?: string) {
+  handleChat(@Body('message') message: string, @Body('sessionId') sessionId: string) {
     return this.retrievesService.handleChat({ message, sessionId });
   }
 }

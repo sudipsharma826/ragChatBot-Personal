@@ -421,7 +421,7 @@ POST /retrieves/chat
 | Field       | Type   | Required | Description                              |
 |-------------|--------|----------|------------------------------------------|
 | `message`   | string | Yes      | User's question or message               |
-| `sessionId` | string | No       | Session identifier for conversation memory |
+| `sessionId` | string | Yes       | Session identifier for conversation memory |
 
 **Response:**
 ```json
