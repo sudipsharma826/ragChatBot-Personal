@@ -6,7 +6,7 @@ import { AuthGuard } from './embeddings.guard';
 export class EmbeddingsController {
   constructor(private readonly embeddingsService: EmbeddingsService) { }
 
-  // @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard)
   @Get('data')
   async getDataAndEmbed() {
     const isConnected = await this.embeddingsService.testSupabaseConnection();
