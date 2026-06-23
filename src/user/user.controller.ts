@@ -1,5 +1,5 @@
 import { Controller, Post, Body, Delete, UseGuards, Req, Res } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { UserService } from './user.service';
 import { SendOtpDto, VerifyOtpDto } from './user.dto';
 import { ChatGuard } from 'src/retrieves/retrieves.guard';

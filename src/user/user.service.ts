@@ -6,7 +6,7 @@ import { SendOtpDto, VerifyOtpDto } from './user.dto';
 import { SupabaseClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import { SUPABASE_CLIENT } from 'src/app.utils';
-import { Response } from 'express';
+import type { Response } from 'express';
 import * as crypto from 'crypto';
 
 
@@ -110,7 +110,7 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto, res: Response) {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', // Use 'none' if backend and frontend are on different domains in production
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
     });
 
