@@ -104,8 +104,6 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto, res: Response) {
     const payload = { email, verifiedAt: new Date().toISOString() };
     const token = jwt.sign(payload, secret, { expiresIn: '24h' });
 
-    await this.redis.setex(`token:${email}`, 86400, token);
-
     // Set token as an HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
@@ -125,15 +123,15 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto, res: Response) {
     };
 }
 
-  // Delete chat history for a user (stored in Redis list `chat:{email}`)
-  async deleteChatHistory(email: string) {
-    if (!email) {
-      return { status: 'error', message: 'Email is required' };
+  // Delete chat history for a user (stored in Redis list `chat:{sessionId}`)
+  async deleteChatHistory(sessionId: string) {
+    if (!sessionId) {
+      return { status: 'error', message: 'Session ID is required' };
     }
 
     try {
       // delete Redis list where chat messages are stored
-      await this.redis.del(`chat:${email}`);
+      await this.redis.del(`chat:${sessionId}`);
 
 
       return { status: '200', message: 'Chat history deleted' };

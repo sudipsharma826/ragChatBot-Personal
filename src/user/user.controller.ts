@@ -19,11 +19,10 @@ export class UserController {
   }
 
   @Delete('history')
-  @UseGuards(ChatGuard)
-  async deleteHistory(@Req() req: any) {
-    const email = req.user?.email;
-    if (!email) return { status: 'error', message: 'Unauthorized' };
-    return this.userService.deleteChatHistory(email);
+  async deleteHistory(@Body() body: { sessionId: string }) {
+    const { sessionId } = body;
+    if (!sessionId) return { status: 'error', message: 'Session ID is required' };
+    return this.userService.deleteChatHistory(sessionId);
   }
 }
 
