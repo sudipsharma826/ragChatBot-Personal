@@ -19,12 +19,28 @@ export class ChatGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers['authorization'];
-    if (!authHeader) {
-      return false;
+    
+    let token = '';
+
+    // First try to get token from cookies
+    const cookieHeader = request.headers.cookie;
+    if (cookieHeader) {
+      const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+        const [key, value] = cookie.split('=').map(c => c.trim());
+        acc[key] = value;
+        return acc;
+      }, {} as Record<string, string>);
+      token = cookies['token'];
     }
 
-    const token = authHeader.split(' ')[1];
+    // Fallback to Authorization header
+    if (!token) {
+      const authHeader = request.headers['authorization'];
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+      }
+    }
+
     if (!token) {
       return false;
     }

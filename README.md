@@ -31,7 +31,7 @@ A Retrieval-Augmented Generation (RAG) backend built with NestJS that powers a p
                     │  │  Module     │  │  Module       │  │  Module          │  │
                     │  │            │  │              │  │                  │  │
                     │  │ OTP Auth   │  │ Query → Embed│  │ Chunk → Embed   │  │
-                    │  │ JWT Tokens │  │ → Search     │  │ → Store         │  │
+                    │  │ Cookies/JWT│  │ → Search     │  │ → Store         │  │
                     │  └─────┬──────┘  └──────┬───────┘  └────────┬────────┘  │
                     │        │                │                    │           │
                     │        ▼                ▼                    ▼           │
@@ -398,11 +398,14 @@ POST /user/verifyOtp
 {
   "status": "200",
   "message": "OTP verified successfully",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
+  "sessionId": "a1b2c3d4-e5f6-7890-1234-56789abcdef0"
 }
 ```
 
-The JWT token is valid for 24 hours. Include it in all authenticated requests.
+**Note:** The backend automatically sets the `token` as an HTTP-only cookie (`token=...`) valid for 24 hours. The frontend should include credentials (`credentials: 'include'`) in subsequent requests, meaning you don't need to manually send the Authorization header anymore (though it's still supported as a fallback).
+
+The frontend should store the returned `sessionId` (e.g., in `localStorage` or memory) and pass it to the chat endpoint to maintain conversation history.
 
 ---
 
@@ -412,8 +415,8 @@ The JWT token is valid for 24 hours. Include it in all authenticated requests.
 
 ```
 POST /retrieves/chat
-Authorization: Bearer <JWT_TOKEN>
 ```
+*(Requires HTTP-only `token` cookie or `Authorization: Bearer <JWT_TOKEN>`)*
 
 | Field       | Type   | Required | Description                              |
 |-------------|--------|----------|------------------------------------------|
@@ -431,7 +434,7 @@ Authorization: Bearer <JWT_TOKEN>
 }
 ```
 
-The `sessionId` groups conversation history in Redis. Generate a unique ID per visitor session on the frontend to maintain isolated chat context.
+The `sessionId` groups conversation history in Redis. The frontend should use the `sessionId` returned from the `/user/verifyOtp` response to maintain the context of the user's chat. If a `sessionId` is not provided, the server will treat each message as an isolated query.
 
 ---
 

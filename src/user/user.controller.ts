@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Delete, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, Delete, UseGuards, Req, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { UserService } from './user.service';
 import { SendOtpDto, VerifyOtpDto } from './user.dto';
 import { ChatGuard } from 'src/retrieves/retrieves.guard';
@@ -13,8 +14,8 @@ export class UserController {
   }
 
   @Post('verifyOtp')
-  async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
-    return this.userService.verifyOtp(verifyOtpDto);
+  async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto, @Res({ passthrough: true }) res: Response) {
+    return this.userService.verifyOtp(verifyOtpDto, res);
   }
 
   @Delete('history')

@@ -6,6 +6,8 @@ import { SendOtpDto, VerifyOtpDto } from './user.dto';
 import { SupabaseClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import { SUPABASE_CLIENT } from 'src/app.utils';
+import { Response } from 'express';
+import * as crypto from 'crypto';
 
 
 
@@ -62,7 +64,7 @@ export class UserService {
   };
 }
 
-async verifyOtp(verifyOtpDto: VerifyOtpDto) {
+async verifyOtp(verifyOtpDto: VerifyOtpDto, res: Response) {
     const { email, otp } = verifyOtpDto;
 
     if (!email || !otp) {
@@ -104,10 +106,22 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto) {
 
     await this.redis.setex(`token:${email}`, 86400, token);
 
+    // Set token as an HTTP-only cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', // Use 'none' if backend and frontend are on different domains in production
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    });
+
+    // Generate a session ID for the frontend to use in chat requests
+    const sessionId = crypto.randomUUID();
+
     return {
         status: '200',
         message: 'OTP verified successfully',
-        token,
+        token, // Kept for non-browser clients (e.g. mobile)
+        sessionId,
     };
 }
 
