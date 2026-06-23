@@ -1,4 +1,3 @@
-import { Redis } from 'ioredis';
 import { gemini, openai, anthropic } from '@inngest/agent-kit';
 
 /**
@@ -8,16 +7,6 @@ import { gemini, openai, anthropic } from '@inngest/agent-kit';
  * the Nest `ConfigService` provide env values at runtime and avoids
  * throwing during module import.
  */
-
-export function createRedis(redisUrl?: string) {
-  if (!redisUrl) {
-    throw new Error('REDIS_URL is required to create a Redis client');
-  }
-  const client = new Redis(redisUrl);
-  client.on('connect', () => console.log('✅ Connected to Redis'));
-  client.on('error', err => console.error('❌ Redis connection error:', err));
-  return client;
-}
 
 export function createModels(keys: {
   OPENAI_API_KEY?: string;

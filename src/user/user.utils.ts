@@ -1,4 +1,3 @@
-//get the Resend Email Ready 
 import { Resend } from 'resend';
 
 export async function createResend({apiKey,email,subject,html}: {apiKey: string,email: string,subject: string,html: string}) {
@@ -27,8 +26,6 @@ export async function createResend({apiKey,email,subject,html}: {apiKey: string,
   }
 };
 
-// Email OTP Template
-// ✅ Email OTP Template (HTML-Only, Ready for Resend/Nodemailer)
 export function generateOtpEmailTemplate(otp: string, email: string) {
   return `
 <!doctype html>

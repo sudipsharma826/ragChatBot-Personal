@@ -1,126 +1,172 @@
 import { Injectable } from '@nestjs/common';
-import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
-import { createClient } from '@supabase/supabase-js';
-import {
-  createTextChunks,
-} from './embeddings.utils';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { createAdvancedChunks } from './embeddings.utils';
 import { ProfileData } from './embeddings.types';
+import { getSupabaseClient } from '../app.utils';
+import { InferenceClient } from '@huggingface/inference';
 
+type EmbeddingChunk = {
+  id: string;
+  text: string;
+  type?: string;
+  title?: string;
+};
 
 @Injectable()
 export class EmbeddingsService {
-  private readonly supabase;
+  private readonly supabase: SupabaseClient;
+  private readonly hf: InferenceClient;
 
   constructor(private readonly config: ConfigService) {
-    const url = this.config.get<string>('SUPABASE_URL');
-    const key = this.config.get<string>('SUPABASE_ANON_KEY');
-    if (!url || !key) throw new Error('Supabase URL and Key are required');
-    // console.log('Supabase URL and Key found', url, key);
-    this.supabase = createClient(url, key);
+    this.supabase = getSupabaseClient(this.config);
+
+    const token = this.config.get<string>('HF_TOKEN');
+    if (!token) throw new Error('HF_TOKEN is missing');
+
+    this.hf = new InferenceClient(token);
   }
 
-  // ===================================================
+  // -----------------------------
   // EMBEDDING GENERATION
-  // ===================================================
-  async generateEmbedding(text: string) {
-    const hfToken = this.config.get<string>('HF_TOKEN');
-    if (!hfToken) throw new Error('HF_TOKEN is missing');
+  // -----------------------------
+  async generateEmbedding(text: string): Promise<number[]> {
+    const cleanedText = text?.trim();
+    if (!cleanedText) throw new Error('Text is required');
 
     try {
-      const { data } = await axios.post(
-        'https://api-inference.huggingface.co/models/BAAI/bge-small-en-v1.5',
-        { inputs: text },
-        {
-          headers: {
-            Authorization: `Bearer ${hfToken}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 60000,
-        },
-      );
+      const result = await this.hf.featureExtraction({
+        model: 'BAAI/bge-small-en-v1.5',
+        inputs: cleanedText,
+      });
 
-      let embedding: number[];
-
-      if (Array.isArray(data[0])) {
-        const dim = data[0].length;
-        const sum = new Array(dim).fill(0);
-        for (const v of data) for (let i = 0; i < dim; i++) sum[i] += v[i];
-        embedding = sum.map((x) => x / data.length);
-      } else {
-        embedding = data;
+      // Case 1: flat embedding
+      if (Array.isArray(result) && typeof result[0] === 'number') {
+        return result as number[];
       }
 
-      return embedding;
-    } catch (err) {
-      console.error('Embedding generation failed:', err?.message ?? err);
+      // Case 2: token-level embeddings → average pooling
+      if (Array.isArray(result) && Array.isArray(result[0])) {
+        const vectors = result as number[][];
+        const dim = vectors[0].length;
+
+        const sum = new Array(dim).fill(0);
+
+        for (const vec of vectors) {
+          for (let i = 0; i < dim; i++) {
+            sum[i] += vec[i];
+          }
+        }
+
+        return sum.map((v) => v / vectors.length);
+      }
+
+      throw new Error('Unexpected embedding format from Hugging Face');
+    } catch (error: any) {
+      console.error('❌ Embedding failed:', error?.message);
+      throw new Error(`Embedding generation failed: ${error?.message}`);
     }
   }
 
-  // ===================================================
-  // PIPELINE
-  // ===================================================
+  // -----------------------------
+  // REFRESH PIPELINE
+  // -----------------------------
   async refreshEmbeddings() {
     const profileData = await this.fetchProfileData();
-    const result = createTextChunks(profileData);
-    const chunks = (result as unknown as ProfileData[]) || [];
+
+    const chunks = createAdvancedChunks(profileData, 1500) as EmbeddingChunk[];
+
+    if (!chunks.length) {
+      throw new Error('No chunks generated');
+    }
+
     await this.clearVectors();
-    await this.upsertEmbeddings(chunks);
+    await this.insertEmbeddings(chunks);
 
     return {
       message: '✅ Embeddings refreshed successfully',
       totalChunks: chunks.length,
-      provider: 'huggingface:baai-bge-small-en-v1.5',
+      provider: 'huggingface:bge-small-en-v1.5',
     };
   }
 
-
-  // ===================================================
-  // DATABASE OPS
-  // ===================================================
-  private async upsertEmbeddings(chunks: any[]) {
+  // -----------------------------
+  // INSERT EMBEDDINGS
+  // -----------------------------
+  private async insertEmbeddings(chunks: EmbeddingChunk[]) {
     for (const chunk of chunks) {
-      const embedding = await this.generateEmbedding(chunk.text);
-      const { error } = await this.supabase.from('documents').insert({
-        id: chunk.id,
-        content: chunk.text,
-        embedding,
-        type: chunk.type,
-        title: chunk.title,
-      });
-      if (error) throw error;
-      await new Promise((r) => setTimeout(r, 300));
+      const text = chunk.text?.trim();
+      if (!text) continue;
+
+      try {
+        const embedding = await this.generateEmbedding(text);
+
+        const { error } = await this.supabase.from('documents').insert({
+          id: chunk.id,
+          content: text,
+          embedding,
+          type: chunk.type ?? null,
+          title: chunk.title ?? null,
+        });
+
+        if (error) throw error;
+
+        await new Promise((r) => setTimeout(r, 300));
+      } catch (err: any) {
+        console.error(`❌ Failed chunk ${chunk.id}:`, err.message);
+        throw err;
+      }
     }
   }
 
+  // -----------------------------
+  // CLEAR VECTORS
+  // -----------------------------
   private async clearVectors() {
-    const { error } = await this.supabase.from('documents').delete().not('id', 'is', null);
+    const { error } = await this.supabase
+      .from('documents')
+      .delete()
+      .not('id', 'is', null);
+
     if (error) throw error;
   }
 
+  // -----------------------------
+  // TEST SUPABASE
+  // -----------------------------
   async testSupabaseConnection() {
-    try {
-      const { error } = await this.supabase.from('documents').select('id').limit(1);
-      if (error && error.message.includes('does not exist')) {
-        console.warn('Table does not exist,');
-      } else {
-        console.log('✅ Supabase connection OK');
-        return true;
-      }
-    } catch (err: any) {
-      console.error('❌ Supabase test failed:', err.message);
+    const { error } = await this.supabase
+      .from('documents')
+      .select('id')
+      .limit(1);
+
+    if (error) {
+      console.warn('⚠️ Supabase issue:', error.message);
       return false;
     }
+
+    return true;
   }
 
-  //Data fetching
-  private async fetchProfileData() {
+  // -----------------------------
+  // FETCH PROFILE DATA
+  // -----------------------------
+  private async fetchProfileData(): Promise<ProfileData> {
     const siteBase = this.config.get<string>('SITE_BASE');
     const secret = this.config.get<string>('SECRET_KEY');
-    if (!siteBase || !secret) throw new Error('SITE_BASE and SECRET_KEY required');
+
+    if (!siteBase || !secret) {
+      throw new Error('SITE_BASE and SECRET_KEY are required');
+    }
+
     const url = `${siteBase}?secret=${encodeURIComponent(secret)}`;
-    const res = await axios.get(url);
-    console.log('Profile data fetched, length:', res.data);
-    return res.data;
+
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      throw new Error('Failed to fetch profile data');
+    }
+
+    return (await res.json()) as ProfileData;
   }
 }

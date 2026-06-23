@@ -1,81 +1,15 @@
 import { randomUUID } from 'crypto';
+import { 
+  ProfileData, 
+  PersonalData, 
+  Experience, 
+  Education, 
+  Project, 
+  Certificate, 
+  Skill 
+} from './embeddings.types';
 
-interface PersonalData {
-  fullName: string;
-  title: string;
-  location: string;
-  bio?: string;
-  objective?: string;
-  summary?: string;
-  heroBio?: string;
-  email?: string;
-  phone?: string;
-  websiteUrl?: string;
-  linkedinUrl?: string;
-  githubUrl?: string;
-  facebookUrl?: string;
-  languages?: string;
-  hobbies?: string;
-  currentLearning?: string;
-}
-
-interface Experience {
-  company: string;
-  position: string;
-  location?: string;
-  startDate: string;
-  endDate?: string;
-  description?: string;
-  achievements?: string[] | string;
-}
-
-interface Education {
-  institution: string;
-  degree: string;
-  field?: string;
-  location?: string;
-  startDate: string;
-  endDate?: string;
-  grade?: string;
-  description?: string;
-  achievements?: string[] | string;
-}
-
-interface Skill {
-  name: string;
-  experienceYears?: string;
-}
-
-interface Project {
-  title: string;
-  description?: string;
-  features?: string[];
-  skills?: string[];
-  liveUrl?: string;
-  githubUrl?: string;
-  featured?: boolean;
-}
-
-interface Certificate {
-  title: string;
-  instituteName: string;
-  issueDate: string;
-  description?: string;
-  credentialUrl?: string;
-  featured?: boolean;
-  skills?: string[];
-}
-
-interface ProfileData {
-  personalData?: PersonalData;
-  experiences?: Experience[];
-  educations?: Education[];
-  skills?: Skill[];
-  projects?: Project[];
-  certificates?: Certificate[];
-}
-
-interface ChunkMetadata {
+export interface ChunkMetadata {
   entityType: string;
   entityName: string;
   timeframe?: 'current' | 'past' | 'recent' | 'historical';
@@ -83,7 +17,7 @@ interface ChunkMetadata {
   skills?: string[];
 }
 
-interface TextChunk {
+export interface TextChunk {
   id: string;
   type: string;
   title: string;
@@ -91,164 +25,113 @@ interface TextChunk {
   metadata?: ChunkMetadata;
 }
 
-export function createTextChunks(profileData: ProfileData): TextChunk[] {
-  const chunks: TextChunk[] = [];
-
-  // --------- Personal Info (Single Cohesive Chunk) ---------
-  if (profileData.personalData) {
-    const p = profileData.personalData;
-    const personalText = `
-Professional Profile: ${p.fullName} is a ${p.title} based in ${p.location}.
-${p.summary ? `Professional Summary: ${p.summary}` : ''}
-${p.bio ? `Bio: ${p.bio}` : ''}
-${p.objective ? `Career Objective: ${p.objective}` : ''}
-${p.heroBio ? `Detailed Bio: ${p.heroBio}` : ''}
-Contact Information: ${p.email || ''} ${p.phone ? `| Phone: ${p.phone}` : ''}
-Online Presence: ${[p.websiteUrl, p.linkedinUrl, p.githubUrl, p.facebookUrl].filter(Boolean).join(' | ')}
-Additional Information: ${p.languages ? `Languages: ${p.languages}` : ''} ${p.hobbies ? `| Hobbies: ${p.hobbies}` : ''} ${p.currentLearning ? `| Currently Learning: ${p.currentLearning}` : ''}
-`.trim();
-
-    if (personalText.length > 50) {
-      chunks.push({
-        id: randomUUID(),
-        type: 'personal',
-        title: `Professional Profile - ${p.fullName}`,
-        text: personalText,
-        metadata: {
-          entityType: 'person',
-          entityName: p.fullName,
-          importance: 'high'
-        }
-      });
+/**
+ * Splits text into chunks with a specified overlap to preserve context.
+ */
+export function chunkTextWithOverlap(text: string, maxChars: number = 1500, overlapChars: number = 300): string[] {
+  if (text.length <= maxChars) return [text];
+  
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
+  const chunks: string[] = [];
+  
+  let currentChunk = '';
+  let overlapBuffer = '';
+  
+  for (let i = 0; i < sentences.length; i++) {
+    const sentence = sentences[i].trim();
+    
+    if ((currentChunk + ' ' + sentence).length > maxChars && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim());
+      
+      // Start new chunk with the overlap buffer
+      currentChunk = overlapBuffer + (overlapBuffer ? ' ' : '') + sentence;
+      
+      // Reset overlap buffer and start building it for the next boundary
+      overlapBuffer = sentence;
+    } else {
+      currentChunk += (currentChunk ? ' ' : '') + sentence;
+      
+      // Maintain overlap buffer
+      if (overlapBuffer.length + sentence.length + 1 > overlapChars) {
+        overlapBuffer = sentence;
+      } else {
+        overlapBuffer += (overlapBuffer ? ' ' : '') + sentence;
+      }
     }
   }
+  
+  if (currentChunk.trim().length > 0) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
+}
 
-  // --------- Experiences (One Chunk Per Experience) ---------
-  profileData.experiences?.forEach((exp: Experience, index: number) => {
-    const isCurrent = !exp.endDate || exp.endDate.toLowerCase() === 'present';
-    const timeframe = isCurrent ? 'current' : index === 0 ? 'recent' : 'past';
-    
-    const experienceText = `
-Work Experience: ${exp.position} at ${exp.company}
-${exp.location ? `Location: ${exp.location}` : ''}
-Duration: ${exp.startDate} to ${exp.endDate || 'Present'}
-${exp.description ? `Role Description: ${exp.description}` : ''}
-${exp.achievements ? `Key Achievements: ${Array.isArray(exp.achievements) ? exp.achievements.join('; ') : exp.achievements}` : ''}
-`.trim();
+/**
+ * Main function to generate vectorized chunks from profile data.
+ */
+export function createAdvancedChunks(profileData: ProfileData, maxChunkSize: number = 1500): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  const overlapSize = Math.floor(maxChunkSize * 0.2); // 20% overlap
 
-    chunks.push({
-      id: randomUUID(),
-      type: 'experience',
-      title: `${isCurrent ? 'Current Role' : 'Previous Experience'} - ${exp.company}`,
-      text: experienceText,
-      metadata: {
-        entityType: 'experience',
-        entityName: exp.company,
-        timeframe: timeframe as 'current' | 'past' | 'recent',
-        importance: isCurrent ? 'high' : index === 0 ? 'medium' : 'low'
-      }
-    });
-  });
-
-  // --------- Education (One Chunk Per Education) ---------
-  profileData.educations?.forEach((edu: Education, index: number) => {
-    const isCurrent = !edu.endDate || edu.endDate.toLowerCase() === 'present';
-    
-    const educationText = `
-Education: ${edu.degree} at ${edu.institution}
-${edu.field ? `Field of Study: ${edu.field}` : ''}
-${edu.location ? `Location: ${edu.location}` : ''}
-Duration: ${edu.startDate} to ${edu.endDate || 'Present'}
-${edu.grade ? `Grade: ${edu.grade}` : ''}
-${edu.description ? `Description: ${edu.description}` : ''}
-${edu.achievements ? `Achievements: ${Array.isArray(edu.achievements) ? edu.achievements.join('; ') : edu.achievements}` : ''}
-`.trim();
-
-    chunks.push({
-      id: randomUUID(),
-      type: 'education',
-      title: `Education - ${edu.institution}`,
-      text: educationText,
-      metadata: {
-        entityType: 'education',
-        entityName: edu.institution,
-        timeframe: isCurrent ? 'current' : 'past',
-        importance: index === 0 ? 'medium' : 'low'
-      }
-    });
-  });
-
-  // --------- Skills (Group Related Skills) ---------
-  if (profileData.skills && profileData.skills.length > 0) {
-    const skillsText = `
-Technical Skills and Proficiencies:
-${profileData.skills.map(skill => 
-  `- ${skill.name}${skill.experienceYears ? ` (${skill.experienceYears} years experience)` : ''}`
-).join('\n')}
-`.trim();
-
-    chunks.push({
-      id: randomUUID(),
-      type: 'skills',
-      title: 'Skills and Technologies',
-      text: skillsText,
-      metadata: {
-        entityType: 'skills',
-        entityName: 'Skills Overview',
-        importance: 'high',
-        skills: profileData.skills.map(s => s.name)
-      }
-    });
+  if (profileData.personalData) {
+    chunks.push(...processPersonalData(profileData.personalData, maxChunkSize, overlapSize));
   }
 
-  // --------- Projects (One Chunk Per Project) ---------
-  profileData.projects?.forEach((proj: Project, index: number) => {
-    const projectText = `
-Project: ${proj.title}
-${proj.description ? `Description: ${proj.description}` : ''}
-${proj.features && proj.features.length > 0 ? `Key Features: ${proj.features.join(', ')}` : ''}
-${proj.skills && proj.skills.length > 0 ? `Technologies Used: ${proj.skills.join(', ')}` : ''}
-${proj.liveUrl ? `Live Demo: ${proj.liveUrl}` : ''}
-${proj.githubUrl ? `Source Code: ${proj.githubUrl}` : ''}
-${proj.featured ? 'Featured Project: Yes' : ''}
-`.trim();
+  if (profileData.experiences?.length) {
+    chunks.push(...processExperiences(profileData.experiences, maxChunkSize, overlapSize));
+  }
 
+  if (profileData.projects?.length) {
+    chunks.push(...processProjects(profileData.projects, maxChunkSize, overlapSize));
+  }
+
+  if (profileData.educations?.length) {
+    chunks.push(...processEducations(profileData.educations, maxChunkSize, overlapSize));
+  }
+
+  if (profileData.skills?.length) {
+    chunks.push(...processSkills(profileData.skills, maxChunkSize));
+  }
+
+  if (profileData.certificates?.length) {
+    chunks.push(...processCertificates(profileData.certificates, maxChunkSize));
+  }
+
+  return chunks;
+}
+
+// --- Entity Processors ---
+
+function processPersonalData(p: PersonalData, maxChunkSize: number, overlapSize: number): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  
+  const socialLinks = [p.linkedinUrl, p.githubUrl, p.websiteUrl, p.twitterUrl, p.facebookUrl]
+    .filter(Boolean)
+    .join(' | ');
+
+  const details = [
+    `${p.fullName} is a ${p.title || 'Professional'} based in ${p.location || 'various locations'}.`,
+    p.summary || p.bio || p.objective,
+    p.heroBio,
+    (p.email || p.phone) ? `Contact: ${[p.email, p.phone].filter(Boolean).join(' | ')}` : null,
+    socialLinks ? `Social Links: ${socialLinks}` : null,
+    p.languages ? `Languages: ${p.languages}` : null,
+    p.currentLearning ? `Currently Learning: ${p.currentLearning}` : null
+  ].filter(Boolean).join('\n');
+
+  const textChunks = chunkTextWithOverlap(details.trim(), maxChunkSize, overlapSize);
+
+  textChunks.forEach((text, index) => {
     chunks.push({
       id: randomUUID(),
-      type: 'project',
-      title: `Project - ${proj.title}`,
-      text: projectText,
+      type: 'personal',
+      title: index === 0 ? `Professional Profile - ${p.fullName}` : `${p.fullName} - Additional Details`,
+      text,
       metadata: {
-        entityType: 'project',
-        entityName: proj.title,
-        importance: proj.featured ? 'medium' : 'low',
-        skills: proj.skills || []
-      }
-    });
-  });
-
-  // --------- Certificates (One Chunk Per Certificate) ---------
-  profileData.certificates?.forEach((cert: Certificate) => {
-    const certificateText = `
-Certification: ${cert.title}
-Issuing Organization: ${cert.instituteName}
-Issue Date: ${cert.issueDate}
-${cert.description ? `Description: ${cert.description}` : ''}
-${cert.credentialUrl ? `Credential URL: ${cert.credentialUrl}` : ''}
-${cert.skills && cert.skills.length > 0 ? `Related Skills: ${cert.skills.join(', ')}` : ''}
-${cert.featured ? 'Featured Certification: Yes' : ''}
-`.trim();
-
-    chunks.push({
-      id: randomUUID(),
-      type: 'certificate',
-      title: `Certification - ${cert.title}`,
-      text: certificateText,
-      metadata: {
-        entityType: 'certificate',
-        entityName: cert.title,
-        importance: cert.featured ? 'medium' : 'low',
-        skills: cert.skills || []
+        entityType: 'person',
+        entityName: p.fullName,
+        importance: 'high'
       }
     });
   });
@@ -256,83 +139,28 @@ ${cert.featured ? 'Featured Certification: Yes' : ''}
   return chunks;
 }
 
-export function createIntelligentChunks(profileData: ProfileData, maxChunkSize: number = 1000): TextChunk[] {
+function processExperiences(experiences: Experience[], maxChunkSize: number, overlapSize: number): TextChunk[] {
   const chunks: TextChunk[] = [];
-
-  const splitLongText = (text: string, maxLength: number = maxChunkSize): string[] => {
-    if (text.length <= maxLength) return [text];
-    
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-    const chunks: string[] = [];
-    let currentChunk = '';
-    
-    for (const sentence of sentences) {
-      const trimmedSentence = sentence.trim();
-      if ((currentChunk + ' ' + trimmedSentence).length > maxLength && currentChunk.length > 0) {
-        chunks.push(currentChunk.trim());
-        currentChunk = trimmedSentence;
-      } else {
-        currentChunk += (currentChunk ? '. ' : '') + trimmedSentence;
-      }
-    }
-    
-    if (currentChunk.trim().length > 0) {
-      chunks.push(currentChunk.trim());
-    }
-    
-    return chunks;
-  };
-
-  // --------- Personal Info ---------
-  if (profileData.personalData) {
-    const p = profileData.personalData;
-    const personalChunks = splitLongText(`
-${p.fullName} is a ${p.title} based in ${p.location}. 
-${p.summary || p.bio || p.objective || ''}
-Contact: ${p.email} ${p.phone ? `| ${p.phone}` : ''}
-${p.linkedinUrl ? `LinkedIn: ${p.linkedinUrl}` : ''}
-${p.githubUrl ? `GitHub: ${p.githubUrl}` : ''}
-${p.languages ? `Languages: ${p.languages}` : ''}
-${p.hobbies ? `Interests: ${p.hobbies}` : ''}
-${p.currentLearning ? `Currently learning: ${p.currentLearning}` : ''}
-`.trim());
-
-    personalChunks.forEach((chunkText, index) => {
-      chunks.push({
-        id: randomUUID(),
-        type: 'personal',
-        title: index === 0 ? `Professional Profile - ${p.fullName}` : `${p.fullName} - Additional Details`,
-        text: chunkText,
-        metadata: {
-          entityType: 'person',
-          entityName: p.fullName,
-          importance: 'high'
-        }
-      });
-    });
-  }
-
-  // --------- Experiences ---------
-  profileData.experiences?.forEach((exp: Experience, index: number) => {
+  
+  experiences.forEach((exp, index) => {
     const isCurrent = !exp.endDate || exp.endDate.toLowerCase() === 'present';
     const timeframe = isCurrent ? 'current' : index === 0 ? 'recent' : 'past';
     
-    const baseText = `${exp.position} at ${exp.company} from ${exp.startDate} to ${exp.endDate || 'Present'}. ${exp.location ? `Location: ${exp.location}.` : ''}`;
-    const fullText = exp.description ? baseText + ' ' + exp.description : baseText;
+    const elements = [
+      `${exp.position || 'Professional'} at ${exp.company} (${exp.startDate || 'N/A'} to ${exp.endDate || 'Present'})`,
+      exp.location ? `Location: ${exp.location}` : null,
+      exp.description,
+      exp.achievements ? `Achievements: ${Array.isArray(exp.achievements) ? exp.achievements.join('; ') : exp.achievements}` : null
+    ];
     
-    const experienceChunks = splitLongText(fullText);
+    const textChunks = chunkTextWithOverlap(elements.filter(Boolean).join('. '), maxChunkSize, overlapSize);
     
-    experienceChunks.forEach((chunkText, chunkIndex) => {
-      const achievementsText = chunkIndex === experienceChunks.length - 1 && exp.achievements ? 
-        ` Achievements: ${Array.isArray(exp.achievements) ? exp.achievements.join('; ') : exp.achievements}` : '';
-      
+    textChunks.forEach((text, chunkIndex) => {
       chunks.push({
         id: randomUUID(),
         type: 'experience',
-        title: chunkIndex === 0 ? 
-          `${isCurrent ? 'Current Role' : 'Work Experience'} - ${exp.company}` : 
-          `${exp.company} - Additional Details`,
-        text: chunkText + achievementsText,
+        title: chunkIndex === 0 ? `${isCurrent ? 'Current Role' : 'Work Experience'} - ${exp.company}` : `${exp.company} - Additional Details`,
+        text,
         metadata: {
           entityType: 'experience',
           entityName: exp.company,
@@ -343,91 +171,30 @@ ${p.currentLearning ? `Currently learning: ${p.currentLearning}` : ''}
     });
   });
 
-  // --------- Education ---------
-  profileData.educations?.forEach((edu: Education, index: number) => {
-    const isCurrent = !edu.endDate || edu.endDate.toLowerCase() === 'present';
-    
-    const baseText = `${edu.degree} at ${edu.institution} from ${edu.startDate} to ${edu.endDate || 'Present'}.`;
-    const additionalInfo = [
-      edu.field ? `Field: ${edu.field}` : '',
-      edu.location ? `Location: ${edu.location}` : '',
-      edu.grade ? `Grade: ${edu.grade}` : '',
-      edu.description ? `Description: ${edu.description}` : ''
-    ].filter(Boolean).join('. ');
-    
-    const fullText = baseText + (additionalInfo ? ' ' + additionalInfo : '');
-    const educationChunks = splitLongText(fullText);
-    
-    educationChunks.forEach((chunkText, chunkIndex) => {
-      const achievementsText = chunkIndex === educationChunks.length - 1 && edu.achievements ? 
-        ` Achievements: ${Array.isArray(edu.achievements) ? edu.achievements.join('; ') : edu.achievements}` : '';
-      
-      chunks.push({
-        id: randomUUID(),
-        type: 'education',
-        title: chunkIndex === 0 ? `Education - ${edu.institution}` : `${edu.institution} - Additional Details`,
-        text: chunkText + achievementsText,
-        metadata: {
-          entityType: 'education',
-          entityName: edu.institution,
-          timeframe: isCurrent ? 'current' : 'past',
-          importance: index === 0 ? 'medium' : 'low'
-        }
-      });
-    });
-  });
+  return chunks;
+}
 
-  // --------- Skills ---------
-  if (profileData.skills && profileData.skills.length > 0) {
-    const skillsByExperience = profileData.skills.reduce((acc, skill) => {
-      const exp = skill.experienceYears || 'No experience specified';
-      if (!acc[exp]) acc[exp] = [];
-      acc[exp].push(skill.name);
-      return acc;
-    }, {} as Record<string, string[]>);
+function processProjects(projects: Project[], maxChunkSize: number, overlapSize: number): TextChunk[] {
+  const chunks: TextChunk[] = [];
 
-    let skillsText = 'Technical Skills and Proficiencies:\n';
-    Object.entries(skillsByExperience).forEach(([exp, skills]) => {
-      skillsText += `${exp}: ${skills.join(', ')}\n`;
-    });
-
-    const skillsChunks = splitLongText(skillsText.trim());
+  projects.forEach((proj) => {
+    const elements = [
+      `Project: ${proj.title}`,
+      proj.description,
+      proj.features?.length ? `Features: ${proj.features.join(', ')}` : null,
+      proj.skills?.length ? `Technologies: ${proj.skills.join(', ')}` : null,
+      proj.liveUrl ? `Live Demo: ${proj.liveUrl}` : null,
+      proj.githubUrl ? `Source Code: ${proj.githubUrl}` : null
+    ];
     
-    skillsChunks.forEach((chunkText, index) => {
-      chunks.push({
-        id: randomUUID(),
-        type: 'skills',
-        title: index === 0 ? 'Skills and Technologies' : 'Additional Skills',
-        text: chunkText,
-        metadata: {
-          entityType: 'skills',
-          entityName: 'Skills Overview',
-          importance: 'high',
-          skills: profileData.skills!.map(s => s.name)
-        }
-      });
-    });
-  }
-
-  // --------- Projects ---------
-  profileData.projects?.forEach((proj: Project, index: number) => {
-    const baseText = `Project: ${proj.title}. ${proj.description || ''}`;
-    const additionalInfo = [
-      proj.features && proj.features.length > 0 ? `Features: ${proj.features.join(', ')}` : '',
-      proj.skills && proj.skills.length > 0 ? `Technologies: ${proj.skills.join(', ')}` : '',
-      proj.liveUrl ? `Live Demo: ${proj.liveUrl}` : '',
-      proj.githubUrl ? `Source Code: ${proj.githubUrl}` : ''
-    ].filter(Boolean).join('. ');
+    const textChunks = chunkTextWithOverlap(elements.filter(Boolean).join('. '), maxChunkSize, overlapSize);
     
-    const fullText = baseText + (additionalInfo ? ' ' + additionalInfo : '');
-    const projectChunks = splitLongText(fullText);
-    
-    projectChunks.forEach((chunkText, chunkIndex) => {
+    textChunks.forEach((text, chunkIndex) => {
       chunks.push({
         id: randomUUID(),
         type: 'project',
         title: chunkIndex === 0 ? `Project - ${proj.title}` : `${proj.title} - Additional Details`,
-        text: chunkText + (proj.featured ? ' (Featured Project)' : ''),
+        text: text + (proj.featured ? ' (Featured Project)' : ''),
         metadata: {
           entityType: 'project',
           entityName: proj.title,
@@ -438,29 +205,37 @@ ${p.currentLearning ? `Currently learning: ${p.currentLearning}` : ''}
     });
   });
 
-  // --------- Certificates ---------
-  profileData.certificates?.forEach((cert: Certificate) => {
-    const baseText = `Certification: ${cert.title} from ${cert.instituteName} issued on ${cert.issueDate}.`;
-    const additionalInfo = [
-      cert.description ? `Description: ${cert.description}` : '',
-      cert.credentialUrl ? `Credential URL: ${cert.credentialUrl}` : '',
-      cert.skills && cert.skills.length > 0 ? `Related Skills: ${cert.skills.join(', ')}` : ''
-    ].filter(Boolean).join('. ');
+  return chunks;
+}
+
+function processEducations(educations: Education[], maxChunkSize: number, overlapSize: number): TextChunk[] {
+  const chunks: TextChunk[] = [];
+
+  educations.forEach((edu, index) => {
+    const isCurrent = !edu.endDate || edu.endDate.toLowerCase() === 'present';
     
-    const fullText = baseText + (additionalInfo ? ' ' + additionalInfo : '');
-    const certificateChunks = splitLongText(fullText);
+    const elements = [
+      `${edu.degree || 'Degree'} at ${edu.institution} (${edu.startDate || 'N/A'} to ${edu.endDate || 'Present'})`,
+      edu.field ? `Field: ${edu.field}` : null,
+      edu.location ? `Location: ${edu.location}` : null,
+      edu.grade ? `Grade: ${edu.grade}` : null,
+      edu.description,
+      edu.achievements ? `Achievements: ${Array.isArray(edu.achievements) ? edu.achievements.join('; ') : edu.achievements}` : null
+    ];
     
-    certificateChunks.forEach((chunkText, chunkIndex) => {
+    const textChunks = chunkTextWithOverlap(elements.filter(Boolean).join('. '), maxChunkSize, overlapSize);
+    
+    textChunks.forEach((text, chunkIndex) => {
       chunks.push({
         id: randomUUID(),
-        type: 'certificate',
-        title: chunkIndex === 0 ? `Certification - ${cert.title}` : `${cert.title} - Additional Details`,
-        text: chunkText + (cert.featured ? ' (Featured Certification)' : ''),
+        type: 'education',
+        title: chunkIndex === 0 ? `Education - ${edu.institution}` : `${edu.institution} - Additional Details`,
+        text,
         metadata: {
-          entityType: 'certificate',
-          entityName: cert.title,
-          importance: cert.featured ? 'medium' : 'low',
-          skills: cert.skills || []
+          entityType: 'education',
+          entityName: edu.institution,
+          timeframe: isCurrent ? 'current' : 'past',
+          importance: index === 0 ? 'medium' : 'low'
         }
       });
     });
@@ -469,12 +244,96 @@ ${p.currentLearning ? `Currently learning: ${p.currentLearning}` : ''}
   return chunks;
 }
 
+function processSkills(skills: Skill[], maxChunkSize: number): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  let currentBlock = 'Technical Skills and Proficiencies:\n';
+  let chunkIndex = 0;
+
+  skills.forEach((skill) => {
+    const exp = skill.experienceYears ? ` (${skill.experienceYears} yrs)` : '';
+    const skillLine = `- ${skill.name}${exp}\n`;
+    
+    if ((currentBlock + skillLine).length > maxChunkSize) {
+      chunks.push(createSkillChunk(currentBlock, chunkIndex, skills));
+      currentBlock = 'Technical Skills:\n' + skillLine;
+      chunkIndex++;
+    } else {
+      currentBlock += skillLine;
+    }
+  });
+
+  if (currentBlock.trim().length > 'Technical Skills:\n'.length) {
+    chunks.push(createSkillChunk(currentBlock, chunkIndex, skills));
+  }
+
+  return chunks;
+}
+
+function createSkillChunk(text: string, index: number, allSkills: Skill[]): TextChunk {
+  return {
+    id: randomUUID(),
+    type: 'skills',
+    title: index === 0 ? 'Skills and Technologies' : `Additional Skills (${index + 1})`,
+    text: text.trim(),
+    metadata: {
+      entityType: 'skills',
+      entityName: 'Skills Overview',
+      importance: 'high',
+      skills: allSkills.map(s => s.name)
+    }
+  };
+}
+
+function processCertificates(certificates: Certificate[], maxChunkSize: number): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  let currentBlock = '';
+  let chunkIndex = 0;
+
+  certificates.forEach((cert) => {
+    const details = [
+      cert.description ? `Desc: ${cert.description}` : null,
+      cert.credentialUrl ? `URL: ${cert.credentialUrl}` : null,
+      cert.skills?.length ? `Skills: ${cert.skills.join(', ')}` : null
+    ].filter(Boolean).join('. ');
+    
+    const certBlock = `Cert: ${cert.title} (${cert.instituteName || 'N/A'}, ${cert.issueDate || 'N/A'}). ${details}\n\n`;
+
+    if ((currentBlock + certBlock).length > maxChunkSize && currentBlock.length > 0) {
+      chunks.push(createCertChunk(currentBlock, chunkIndex));
+      currentBlock = certBlock;
+      chunkIndex++;
+    } else {
+      currentBlock += certBlock;
+    }
+  });
+
+  if (currentBlock.trim().length > 0) {
+    chunks.push(createCertChunk(currentBlock, chunkIndex));
+  }
+
+  return chunks;
+}
+
+function createCertChunk(text: string, index: number): TextChunk {
+  return {
+    id: randomUUID(),
+    type: 'certificate',
+    title: index === 0 ? 'Certifications' : `Additional Certifications (${index + 1})`,
+    text: text.trim(),
+    metadata: {
+      entityType: 'certificate',
+      entityName: 'Certifications',
+      importance: 'medium'
+    }
+  };
+}
+
 // Utility function to test chunk quality
 export function analyzeChunks(chunks: TextChunk[]): void {
   console.log(`Total chunks: ${chunks.length}`);
   
   const byType = chunks.reduce((acc, chunk) => {
-    acc[chunk.type] = (acc[chunk.type] || 0) + 1;
+    acc[chunk.type] = ((acc[chunk.type] as number) || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   

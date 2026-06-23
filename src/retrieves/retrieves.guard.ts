@@ -9,7 +9,7 @@ export class ChatGuard implements CanActivate {
   private readonly jwtSecret: string;
 
   constructor(
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis, // name is in the provider
   ) {
     this.jwtSecret = process.env.JWT_SECRET || '';
     if (!this.jwtSecret) {
@@ -54,4 +54,3 @@ export class ChatGuard implements CanActivate {
     }
   }
 }
-// if 403 and message is forbidden , error of token not accepted

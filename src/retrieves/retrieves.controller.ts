@@ -5,9 +5,9 @@ import { ChatGuard } from './retrieves.guard';
 @Controller('retrieves')
 export class RetrievesController {
   constructor(private readonly retrievesService: RetrievesService) {}
-  @UseGuards(ChatGuard)
+  // @UseGuards(ChatGuard)
   @Post('chat')
-  handleChat(@Body('message') message: string) {
-    return this.retrievesService.handleChat({ message });
+  handleChat(@Body('message') message: string, @Body('sessionId') sessionId?: string) {
+    return this.retrievesService.handleChat({ message, sessionId });
   }
 }

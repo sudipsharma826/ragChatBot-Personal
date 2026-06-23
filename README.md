@@ -1,98 +1,511 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Personal RAG Chatbot API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A Retrieval-Augmented Generation (RAG) backend built with NestJS that powers a personal AI avatar. It answers questions about the profile owner's background, projects, skills, and experience by embedding user queries, performing vector similarity search over Supabase pgvector, and generating contextual responses through a multi-LLM fallback pipeline.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Table of Contents
 
-## Description
+- [Architecture Overview](#architecture-overview)
+- [How the RAG Pipeline Works](#how-the-rag-pipeline-works)
+  - [1. Embedding & Ingestion](#1-embedding--ingestion)
+  - [2. Retrieval](#2-retrieval)
+  - [3. Response Generation](#3-response-generation)
+- [Project Structure](#project-structure)
+- [Tech Stack](#tech-stack)
+- [Environment Variables](#environment-variables)
+- [Supabase Setup](#supabase-setup)
+- [Installation](#installation)
+- [API Reference](#api-reference)
+- [Deployment](#deployment)
+- [License](#license)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Architecture Overview
 
-```bash
-$ npm install
+```
+┌─────────────┐     ┌──────────────────────────────────────────────────────────┐
+│  Frontend   │────▶│                    NestJS Backend                        │
+│  (Client)   │◀────│                                                          │
+└─────────────┘     │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+                    │  │  User       │  │  Retrieves   │  │  Embeddings      │  │
+                    │  │  Module     │  │  Module       │  │  Module          │  │
+                    │  │            │  │              │  │                  │  │
+                    │  │ OTP Auth   │  │ Query → Embed│  │ Chunk → Embed   │  │
+                    │  │ JWT Tokens │  │ → Search     │  │ → Store         │  │
+                    │  └─────┬──────┘  └──────┬───────┘  └────────┬────────┘  │
+                    │        │                │                    │           │
+                    │        ▼                ▼                    ▼           │
+                    │  ┌──────────┐    ┌──────────────┐    ┌──────────────┐   │
+                    │  │  Redis   │    │  Response     │    │  HuggingFace │   │
+                    │  │          │    │  Module       │    │  Inference   │   │
+                    │  │ Sessions │    │              │    │  API         │   │
+                    │  │ OTPs     │    │ LLM Fallback │    │              │   │
+                    │  │ Tokens   │    │ Chat Memory  │    │ bge-small-en │   │
+                    │  └──────────┘    └──────┬───────┘    └──────────────┘   │
+                    │                         │                               │
+                    │                         ▼                               │
+                    │              ┌───────────────────┐                      │
+                    │              │  Supabase          │                      │
+                    │              │  PostgreSQL        │                      │
+                    │              │  + pgvector        │                      │
+                    │              └───────────────────┘                      │
+                    └──────────────────────────────────────────────────────────┘
 ```
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ npm run start
+## How the RAG Pipeline Works
 
-# watch mode
-$ npm run start:dev
+### 1. Embedding & Ingestion
 
-# production mode
-$ npm run start:prod
+The ingestion step fetches structured profile data (JSON) from an external portfolio API and converts it into searchable vector embeddings stored in Supabase.
+
+**Data flow:**
+
+```
+Portfolio API → Fetch JSON → Chunk by entity type → Generate embeddings → Store in pgvector
 ```
 
-## Run tests
+**Chunking strategy:**
+
+Profile data is split into typed chunks based on entity category. Each chunk type uses a strategy suited to its content structure:
+
+| Entity Type   | Strategy                                  | Overlap |
+|---------------|-------------------------------------------|---------|
+| Personal Info | Sentence-boundary splitting               | 20%     |
+| Experiences   | Per-entry narrative, sentence splitting   | 20%     |
+| Projects      | Per-project with features and tech stack  | 20%     |
+| Education     | Per-institution entry                     | 20%     |
+| Skills        | Grouped list, no overlap needed           | None    |
+| Certificates  | Grouped list, no overlap needed           | None    |
+
+The 20% overlap on narrative content ensures that context at chunk boundaries is preserved during retrieval. For structured list data (skills, certificates), clean grouping without overlap produces better search results.
+
+Each chunk is stored as a row in the `documents` table with the following columns:
+
+| Column      | Type          | Description                                     |
+|-------------|---------------|-------------------------------------------------|
+| `id`        | `UUID`        | Unique identifier (generated per chunk)         |
+| `content`   | `TEXT`        | The plain-text chunk content                    |
+| `embedding` | `VECTOR(384)` | 384-dimensional vector from `bge-small-en-v1.5` |
+| `type`      | `VARCHAR(50)` | Entity type (personal, experience, project, etc)|
+| `title`     | `VARCHAR(255)`| Human-readable chunk title                      |
+
+**Embedding model:** `BAAI/bge-small-en-v1.5` via HuggingFace Inference API — produces 384-dimensional vectors optimized for semantic similarity tasks.
+
+**Trigger:** `GET /embeddings/data` fetches fresh profile data, clears existing vectors, and re-embeds all chunks.
+
+---
+
+### 2. Retrieval
+
+When a user sends a chat message, the retrieval step converts the query into the same vector space and finds the most relevant stored chunks.
+
+**Data flow:**
+
+```
+User message → Generate query embedding → Supabase RPC (cosine similarity) → Top-K documents → Combined context
+```
+
+**How it works:**
+
+1. The raw user message is embedded using the same `bge-small-en-v1.5` model.
+2. The embedding is passed to a Supabase PostgreSQL function `match_documents` that computes cosine similarity between the query vector and all stored document vectors.
+3. Documents exceeding the similarity threshold (default: `0.5`) are returned, ordered by similarity score, limited to the top 5 matches.
+4. The `content` fields of matched documents are concatenated into a single `combinedContent` string, separated by double newlines.
+
+**The `match_documents` function (pgvector):**
+
+```sql
+CREATE OR REPLACE FUNCTION match_documents(
+    query_embedding VECTOR(384),
+    match_threshold FLOAT DEFAULT 0.75,
+    match_count INT DEFAULT 5
+)
+RETURNS TABLE(id UUID, content TEXT, similarity FLOAT, type VARCHAR(50), title VARCHAR(255))
+LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN QUERY
+    SELECT d.id, d.content,
+           (1 - (d.embedding <=> query_embedding)) AS similarity,
+           d.type, d.title
+    FROM documents d
+    WHERE (1 - (d.embedding <=> query_embedding)) > match_threshold
+    ORDER BY (1 - (d.embedding <=> query_embedding)) DESC
+    LIMIT match_count;
+END;
+$$;
+```
+
+The `<=>` operator is pgvector's cosine distance operator. The function converts it to similarity by computing `1 - distance`.
+
+---
+
+### 3. Response Generation
+
+The retrieved context and the user's recent conversation history are assembled into a system prompt and sent to an LLM for response generation.
+
+**Data flow:**
+
+```
+Combined context + Chat history (Redis) + User message → System prompt → LLM Agent → AI response → Save to Redis
+```
+
+**Multi-LLM fallback:**
+
+The system uses `@inngest/agent-kit` to configure multiple LLM providers. If the primary provider fails, the next one in the fallback chain is used:
+
+| Priority | Provider    | Model                        |
+|----------|-------------|------------------------------|
+| 1        | Groq        | `llama-3.3-70b-versatile`    |
+| 2        | OpenRouter  | `openai/gpt-4o`              |
+| 3        | Google      | `gemini-2.5-flash`           |
+| 4        | OpenAI      | `gpt-4o-mini`                |
+| 5        | Anthropic   | `claude-sonnet-4-20250514`   |
+
+You only need API keys for the providers you want to use. The system skips any provider without a configured key.
+
+**Session memory:**
+
+Chat history is stored per-session in Redis using a `chat:{sessionId}` key. Each request loads the last 8 messages from Redis to maintain conversational context. Both the user message and the AI response are appended to the session after each exchange.
+
+---
+
+## Project Structure
+
+```
+src/
+├── app.module.ts                 # Root module, imports all feature modules
+├── app.utils.ts                  # Shared factory functions (Redis, Supabase clients)
+├── main.ts                       # Application entry point
+│
+├── embeddings/                   # Embedding & ingestion pipeline
+│   ├── embeddings.module.ts      # Module definition
+│   ├── embeddings.controller.ts  # GET /embeddings/data endpoint
+│   ├── embeddings.service.ts     # Embedding generation, storage, refresh logic
+│   ├── embeddings.guard.ts       # Secret-key auth guard for admin endpoints
+│   ├── embeddings.utils.ts       # Chunking strategies and text processing
+│   ├── embeddings.types.ts       # TypeScript interfaces for profile data
+│   └── embeddings.sql.ts         # SQL schema for documents table and pgvector
+│
+├── retrieves/                    # Query retrieval pipeline
+│   ├── retrieves.module.ts       # Module definition
+│   ├── retrieves.controller.ts   # POST /retrieves/chat endpoint
+│   ├── retrieves.service.ts      # Query embedding, vector search, context assembly
+│   └── retrieves.guard.ts        # JWT + Redis token validation guard
+│
+├── response/                     # LLM response generation
+│   ├── response.module.ts        # Module definition (Redis + model providers)
+│   ├── response.service.ts       # Prompt assembly, agent execution, chat storage
+│   ├── response.utils.ts         # LLM model factory with fallback chain
+│   └── response.type.ts          # TypeScript interfaces for AI responses
+│
+└── user/                         # Authentication (OTP + JWT)
+    ├── user.module.ts            # Module definition
+    ├── user.controller.ts        # POST /user/sendOtp, /user/verifyOtp, DELETE /user/history
+    ├── user.service.ts           # OTP generation, verification, JWT issuance
+    ├── user.dto.ts               # Request validation DTOs
+    └── user.utils.ts             # Resend email client, OTP email template
+```
+
+---
+
+## Tech Stack
+
+| Component            | Technology                                                    |
+|----------------------|---------------------------------------------------------------|
+| Framework            | [NestJS](https://nestjs.com/) (TypeScript)                   |
+| Database             | [Supabase](https://supabase.com/) (PostgreSQL + pgvector)    |
+| Vector Search        | pgvector cosine similarity via Supabase RPC                  |
+| Embeddings           | `BAAI/bge-small-en-v1.5` via HuggingFace Inference API      |
+| LLM Orchestration    | [@inngest/agent-kit](https://www.inngest.com/agent-kit)      |
+| Session Store        | [Redis](https://redis.io/) (ioredis)                         |
+| Email (OTP)          | [Resend](https://resend.com/)                                |
+| Deployment           | [Vercel](https://vercel.com/) (serverless)                   |
+
+---
+
+## Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+# Server
+PORT=3000
+
+# Supabase — Project Settings → API
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+
+# Redis — connection string from your Redis provider
+REDIS_URL=redis://default:password@host:port
+
+# HuggingFace — huggingface.co → Settings → Access Tokens
+HF_TOKEN=hf_your_token
+
+# Email delivery — resend.com → API Keys
+RESEND_API_KEY=re_your_key
+
+# Security
+JWT_SECRET=your_jwt_secret
+SECRET_KEY=your_admin_secret_key
+
+# Data source — the API that returns your profile JSON
+SITE_BASE=https://your-site.com/api/metaData
+# Secret for accessing the profile API
+SECRET_KEY=your_profile_api_secret
+
+# Frontend URL (for CORS, when enabled)
+FRONTEND_URL=http://localhost:5173
+
+# LLM Providers — add keys for any or all providers
+GROQ_API_KEY=your_groq_key
+OPENROUTER_API_KEY=your_openrouter_key
+GEMINI_API_KEY=your_gemini_key
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+```
+
+---
+
+## Supabase Setup
+
+Run the following SQL in the Supabase SQL Editor to set up the required tables and functions:
+
+```sql
+-- Enable pgvector
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Documents table for storing embeddings
+CREATE TABLE IF NOT EXISTS documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    embedding VECTOR(384),
+    type VARCHAR(50),
+    title VARCHAR(255),
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- IVFFlat index for fast cosine similarity search
+CREATE INDEX IF NOT EXISTS documents_embedding_idx
+ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- Vector similarity search function
+CREATE OR REPLACE FUNCTION match_documents(
+    query_embedding VECTOR(384),
+    match_threshold FLOAT DEFAULT 0.75,
+    match_count INT DEFAULT 5
+)
+RETURNS TABLE(id UUID, content TEXT, similarity FLOAT, type VARCHAR(50), title VARCHAR(255))
+LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN QUERY
+    SELECT d.id, d.content,
+           (1 - (d.embedding <=> query_embedding)) AS similarity,
+           d.type, d.title
+    FROM documents d
+    WHERE (1 - (d.embedding <=> query_embedding)) > match_threshold
+    ORDER BY (1 - (d.embedding <=> query_embedding)) DESC
+    LIMIT match_count;
+END;
+$$;
+
+-- Verified users table (for OTP authentication)
+CREATE TABLE IF NOT EXISTS verified_users (
+    email TEXT PRIMARY KEY,
+    verified_at TIMESTAMP WITH TIME ZONE,
+    last_verified_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Auto-update trigger for updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_documents_updated_at
+    BEFORE UPDATE ON documents
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+```
+
+**Important:** If Row-Level Security (RLS) is enabled on the `documents` table, either disable it for this table or create a policy that allows the service role to read, insert, and delete rows. Using the Supabase service role key (instead of the anon key) bypasses RLS entirely.
+
+---
+
+## Installation
 
 ```bash
-# unit tests
-$ npm run test
+# Clone the repository
+git clone https://github.com/sudipsharma826/ragChatBot-Personal.git
+cd ragChatBot-Personal
 
-# e2e tests
-$ npm run test:e2e
+# Install dependencies
+npm install
 
-# test coverage
-$ npm run test:cov
+# Development (watch mode)
+npm run start:dev
+
+# Production build
+npm run build
+npm run start:prod
 ```
+
+The server starts on the port defined in `.env` (default: `3000`).
+
+---
+
+## API Reference
+
+### Authentication
+
+#### Send OTP
+
+```
+POST /user/sendOtp
+```
+
+| Field   | Type   | Required | Description              |
+|---------|--------|----------|--------------------------|
+| `email` | string | Yes      | Email address for OTP    |
+
+**Response:**
+```json
+{
+  "status": "200",
+  "message": "OTP has been sent to user@example.com. Please verify within 5 minutes."
+}
+```
+
+#### Verify OTP
+
+```
+POST /user/verifyOtp
+```
+
+| Field   | Type   | Required | Description              |
+|---------|--------|----------|--------------------------|
+| `email` | string | Yes      | Email used for OTP       |
+| `otp`   | string | Yes      | 6-digit OTP from email   |
+
+**Response:**
+```json
+{
+  "status": "200",
+  "message": "OTP verified successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+}
+```
+
+The JWT token is valid for 24 hours. Include it in all authenticated requests.
+
+---
+
+### Chat
+
+#### Send Message
+
+```
+POST /retrieves/chat
+Authorization: Bearer <JWT_TOKEN>
+```
+
+| Field       | Type   | Required | Description                              |
+|-------------|--------|----------|------------------------------------------|
+| `message`   | string | Yes      | User's question or message               |
+| `sessionId` | string | No       | Session identifier for conversation memory |
+
+**Response:**
+```json
+{
+  "message": "What technologies do you use?",
+  "response": {
+    "aiMessage": "I mainly work with TypeScript, NestJS, and Next.js for my projects.",
+    "combinedContent": "..."
+  }
+}
+```
+
+The `sessionId` groups conversation history in Redis. Generate a unique ID per visitor session on the frontend to maintain isolated chat context.
+
+---
+
+### Embeddings Management
+
+#### Refresh Embeddings
+
+```
+GET /embeddings/data
+```
+
+Fetches the latest profile data, re-chunks it, and updates the vector store.
+
+**Response:**
+```json
+{
+  "message": "Embeddings refreshed successfully",
+  "totalChunks": 24,
+  "provider": "huggingface:bge-small-en-v1.5"
+}
+```
+
+---
+
+### History Management
+
+#### Delete Chat History
+
+```
+DELETE /user/history
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**Response:**
+```json
+{
+  "status": "200",
+  "message": "Chat history deleted"
+}
+```
+
+---
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Vercel
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+The project includes a `vercel.json` for serverless deployment:
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```json
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "api/index.ts" }
+  ]
+}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Set all environment variables in the Vercel dashboard under **Settings → Environment Variables**.
 
-## Resources
+### Other Platforms
 
-Check out a few resources that may come in handy when working with NestJS:
+For traditional server deployments (VPS, Docker, etc.):
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run build
+NODE_ENV=production node dist/main.js
+```
 
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This project is open-sourced under the [MIT License](LICENSE).

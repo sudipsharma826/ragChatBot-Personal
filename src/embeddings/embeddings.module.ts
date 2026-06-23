@@ -1,14 +1,23 @@
 import { Module } from '@nestjs/common';
 import { EmbeddingsService } from './embeddings.service';
 import { EmbeddingsController } from './embeddings.controller';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { SUPABASE_CLIENT, getSupabaseClient } from '../app.utils';
+
 
 @Module({
-  imports:[
-    ConfigModule
-  ],
+  imports: [ConfigModule],
   controllers: [EmbeddingsController],
-  providers: [EmbeddingsService],
-  exports: [EmbeddingsService], //for using the embedding service by the another module
+  providers: [
+    EmbeddingsService,
+    {
+      provide: SUPABASE_CLIENT,
+      useFactory: (configService: ConfigService) => {
+        return getSupabaseClient(configService);
+      },
+      inject: [ConfigService],
+    },
+  ],
+  exports: [EmbeddingsService],
 })
 export class EmbeddingsModule {}

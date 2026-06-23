@@ -1,10 +1,10 @@
 {
-  "name": "rag",
-  "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "name": "rag-chatbot-personal",
+  "version": "1.0.0",
+  "description": "Personal RAG chatbot API built with NestJS, Supabase pgvector, and multi-LLM fallback",
+  "author": "Sudip Sharma",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -21,6 +21,7 @@
     "vercel-build": "nest build"
   },
   "dependencies": {
+    "@huggingface/inference": "^4.13.19",
     "@inngest/agent-kit": "^0.13.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
@@ -28,12 +29,12 @@
     "@nestjs/mapped-types": "*",
     "@nestjs/platform-express": "^11.1.7",
     "@supabase/supabase-js": "^2.75.1",
-    "axios": "^1.12.2",
     "class-validator": "^0.14.2",
     "crypto": "^1.0.1",
     "install": "^0.13.0",
     "ioredis": "^5.8.1",
     "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^3.3.2",
     "npm": "^11.6.2",
     "reflect-metadata": "^0.2.2",
     "resend": "^6.2.0",
