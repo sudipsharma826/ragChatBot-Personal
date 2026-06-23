@@ -1,16 +1,11 @@
-import { CanActivate, ExecutionContext, Injectable, Inject } from "@nestjs/common";
-import Redis from "ioredis";
+import { CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
 import jwt from "jsonwebtoken";
-
-const REDIS_CLIENT = 'REDIS_CLIENT';
 
 @Injectable()
 export class ChatGuard implements CanActivate {
   private readonly jwtSecret: string;
 
-  constructor(
-    @Inject(REDIS_CLIENT) private readonly redis: Redis, // name is in the provider
-  ) {
+  constructor() {
     this.jwtSecret = process.env.JWT_SECRET || '';
     if (!this.jwtSecret) {
       throw new Error('JWT_SECRET environment variable is required');
@@ -49,12 +44,6 @@ export class ChatGuard implements CanActivate {
       const payload: any = jwt.verify(token, this.jwtSecret);
       const email = payload.email;
       if (!email) return false;
-
-      // Check the token against Redis store
-      const storedToken = await this.redis.get(`token:${email}`);
-      if (storedToken !== token) {
-        return false;
-      }
       // attach the email to the request so controllers can read it
       try {
         const req = context.switchToHttp().getRequest();

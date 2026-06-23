@@ -38,9 +38,8 @@ A Retrieval-Augmented Generation (RAG) backend built with NestJS that powers a p
                     │  ┌──────────┐    ┌──────────────┐    ┌──────────────┐   │
                     │  │  Redis   │    │  Response     │    │  HuggingFace │   │
                     │  │          │    │  Module       │    │  Inference   │   │
-                    │  │ Sessions │    │              │    │  API         │   │
-                    │  │ OTPs     │    │ LLM Fallback │    │              │   │
-                    │  │ Tokens   │    │ Chat Memory  │    │ bge-small-en │   │
+                    │  │ OTPs     │    │ LLM Fallback │    │  API         │   │
+                    │  │ Sessions │    │ Chat Memory  │    │ bge-small-en │   │
                     │  └──────────┘    └──────┬───────┘    └──────────────┘   │
                     │                         │                               │
                     │                         ▼                               │
@@ -192,7 +191,7 @@ src/
 │   ├── retrieves.module.ts       # Module definition
 │   ├── retrieves.controller.ts   # POST /retrieves/chat endpoint
 │   ├── retrieves.service.ts      # Query embedding, vector search, context assembly
-│   └── retrieves.guard.ts        # JWT + Redis token validation guard
+│   └── retrieves.guard.ts        # JWT-only auth guard (verifies signature + expiry)
 │
 ├── response/                     # LLM response generation
 │   ├── response.module.ts        # Module definition (Redis + model providers)
@@ -398,12 +397,11 @@ POST /user/verifyOtp
 {
   "status": "200",
   "message": "OTP verified successfully",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
   "sessionId": "a1b2c3d4-e5f6-7890-1234-56789abcdef0"
 }
 ```
 
-**Note:** The backend automatically sets the `token` as an HTTP-only cookie (`token=...`) valid for 24 hours. The frontend should include credentials (`credentials: 'include'`) in subsequent requests, meaning you don't need to manually send the Authorization header anymore (though it's still supported as a fallback).
+**Note:** The backend sets the JWT as an HTTP-only cookie (`token=...`) valid for 24 hours. The cookie is verified entirely on the server using the JWT signature and expiry — **no Redis lookup is performed**. The frontend must include credentials (`credentials: 'include'`) in subsequent requests. The `Authorization: Bearer <token>` header is also accepted as a fallback.
 
 The frontend should store the returned `sessionId` (e.g., in `localStorage` or memory) and pass it to the chat endpoint to maintain conversation history.
 
