@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { createAdvancedChunks } from './embeddings.utils';
@@ -71,7 +71,12 @@ export class EmbeddingsService {
   // -----------------------------
   // REFRESH PIPELINE
   // -----------------------------
-  async refreshEmbeddings() {
+  async refreshEmbeddings(secret: string) {
+    const validSecret = this.config.get<string>('SECRET_KEY');
+    if (!secret || secret !== validSecret) {
+      throw new UnauthorizedException('Invalid secret key');
+    }
+
     const profileData = await this.fetchProfileData();
 
     const chunks = createAdvancedChunks(profileData, 1500) as EmbeddingChunk[];

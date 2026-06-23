@@ -443,10 +443,11 @@ The `sessionId` groups conversation history in Redis. The frontend should use th
 #### Refresh Embeddings
 
 ```
-GET /embeddings/data
+GET /embeddings/data?secret=<SECRET_KEY>
 ```
 
 Fetches the latest profile data, re-chunks it, and updates the vector store.
+
 
 **Response:**
 ```json

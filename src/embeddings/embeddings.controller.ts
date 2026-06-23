@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Get, UseGuards, InternalServerErrorException, Query } from '@nestjs/common';
 import { EmbeddingsService } from './embeddings.service';
 import { AuthGuard } from './embeddings.guard';
 
@@ -8,11 +8,11 @@ export class EmbeddingsController {
 
   @UseGuards(AuthGuard)
   @Get('data')
-  async getDataAndEmbed() {
+  async getDataAndEmbed(@Query('secret') secret: string) {
     const isConnected = await this.embeddingsService.testSupabaseConnection();
 
     if (isConnected) {
-      return this.embeddingsService.refreshEmbeddings();
+      return this.embeddingsService.refreshEmbeddings(secret);
     } else {
       throw new InternalServerErrorException('Failed to connect to Supabase database');
     }
