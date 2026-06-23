@@ -466,7 +466,9 @@ Fetches the latest profile data, re-chunks it, and updates the vector store.
 
 ```
 DELETE /user/history
-Authorization: Bearer <JWT_TOKEN>
+| Field   | Type   | Required | Description              |
+|---------|--------|----------|--------------------------|
+| `sessionId` | string | Yes      |To track the session id stored in localStorage by the frontend        |
 ```
 
 **Response:**

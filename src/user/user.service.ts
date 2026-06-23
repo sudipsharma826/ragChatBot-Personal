@@ -118,7 +118,6 @@ async verifyOtp(verifyOtpDto: VerifyOtpDto, res: Response) {
     return {
         status: '200',
         message: 'OTP verified successfully',
-        token, // Kept for non-browser clients (e.g. mobile)
         sessionId,
     };
 }
