@@ -1,263 +1,435 @@
 # Personal RAG Chatbot API
 
-A Retrieval-Augmented Generation (RAG) backend built with NestJS that powers a personal AI avatar. It answers questions about the profile owner's background, projects, skills, and experience by embedding user queries, performing vector similarity search over Supabase pgvector, and generating contextual responses through a multi-LLM fallback pipeline.
+A production-ready **Personal RAG (Retrieval-Augmented Generation) backend** built with **NestJS**, **Supabase pgvector**, **Redis**, and a **multi-LLM fallback pipeline**.
+
+This project powers a personal AI avatar that can answer questions about the profile owner’s **background, projects, skills, education, and experience** by retrieving relevant knowledge-base content and combining it with recent conversation history before generating a response.
+
+---
 
 ## Table of Contents
 
-- [Architecture Overview](#architecture-overview)
-- [How the RAG Pipeline Works](#how-the-rag-pipeline-works)
-  - [1. Embedding & Ingestion](#1-embedding--ingestion)
-  - [2. Retrieval](#2-retrieval)
-  - [3. Response Generation](#3-response-generation)
-- [Project Structure](#project-structure)
-- [Tech Stack](#tech-stack)
-- [Environment Variables](#environment-variables)
-- [Supabase Setup](#supabase-setup)
-- [Installation](#installation)
-- [API Reference](#api-reference)
-- [Deployment](#deployment)
-- [License](#license)
+* [Overview](#overview)
+* [Core Features](#core-features)
+* [Architecture](#architecture)
+* [How the RAG Pipeline Works](#how-the-rag-pipeline-works)
+
+  * [1. Ingestion & Embedding](#1-ingestion--embedding)
+  * [2. Retrieval](#2-retrieval)
+  * [3. Response Generation](#3-response-generation)
+* [Project Structure](#project-structure)
+* [Tech Stack](#tech-stack)
+* [Environment Variables](#environment-variables)
+* [Supabase Setup](#supabase-setup)
+* [Installation](#installation)
+* [API Reference](#api-reference)
+* [Deployment](#deployment)
+* [Important Notes](#important-notes)
+* [License](#license)
 
 ---
 
-## Architecture Overview
+# Overview
 
-```
-┌─────────────┐     ┌──────────────────────────────────────────────────────────┐
-│  Frontend   │────▶│                    NestJS Backend                        │
-│  (Client)   │◀────│                                                          │
-└─────────────┘     │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-                    │  │  User       │  │  Retrieves   │  │  Embeddings      │  │
-                    │  │  Module     │  │  Module       │  │  Module          │  │
-                    │  │            │  │              │  │                  │  │
-                    │  │ OTP Auth   │  │ Query → Embed│  │ Chunk → Embed   │  │
-                    │  │ Cookies/JWT│  │ → Search     │  │ → Store         │  │
-                    │  └─────┬──────┘  └──────┬───────┘  └────────┬────────┘  │
-                    │        │                │                    │           │
-                    │        ▼                ▼                    ▼           │
-                    │  ┌──────────┐    ┌──────────────┐    ┌──────────────┐   │
-                    │  │  Redis   │    │  Response     │    │  HuggingFace │   │
-                    │  │          │    │  Module       │    │  Inference   │   │
-                    │  │ OTPs     │    │ LLM Fallback │    │  API         │   │
-                    │  │ Sessions │    │ Chat Memory  │    │ bge-small-en │   │
-                    │  └──────────┘    └──────┬───────┘    └──────────────┘   │
-                    │                         │                               │
-                    │                         ▼                               │
-                    │              ┌───────────────────┐                      │
-                    │              │  Supabase          │                      │
-                    │              │  PostgreSQL        │                      │
-                    │              │  + pgvector        │                      │
-                    │              └───────────────────┘                      │
-                    └──────────────────────────────────────────────────────────┘
+This project is a **Personal Retrieval-Augmented Generation (RAG) API**.
+
+Instead of generating answers from the language model alone, the system first retrieves the most relevant chunks from a **personal knowledge base** (portfolio/profile data stored as embeddings in Supabase), then combines that retrieved context with **recent conversation history** and the **current user message** to generate a grounded response.
+
+In short, each answer is generated using **four inputs**:
+
+1. **The current user message**
+2. **The last 8 chat messages stored in Redis for that session**
+3. **The retrieved knowledge-base context from Supabase pgvector**
+4. **The system/persona prompt used to shape the assistant’s behavior**
+
+This design helps the chatbot stay:
+
+* **Grounded** in the profile owner’s real data
+* **Context-aware** across multiple chat turns
+* **Consistent** in persona, tone, and style
+
+---
+
+# Core Features
+
+* **Personal RAG pipeline** for portfolio/profile Q&A
+* **Semantic retrieval** using **Supabase + pgvector**
+* **Embeddings generated with** `BAAI/bge-small-en-v1.5`
+* **Session-based memory** using **Redis**
+* **Last 8 chat messages loaded per request** for conversational continuity
+* **OTP-based authentication** with **JWT + HTTP-only cookies**
+* **Multi-LLM fallback chain** using `@inngest/agent-kit`
+* **Embedding refresh endpoint** for re-ingesting profile data
+* **Structured chunking strategy** for personal info, projects, education, skills, and experience
+
+---
+
+# Architecture
+
+```text
+┌─────────────┐
+│  Frontend   │
+│  (Client)   │
+└──────┬──────┘
+       │ HTTP Requests
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│                        NestJS Backend                       │
+│                                                              │
+│  ┌──────────────┐   ┌──────────────┐   ┌─────────────────┐  │
+│  │ User Module  │   │ Retrieves    │   │ Response Module │  │
+│  │ OTP + JWT    │   │ Module       │   │ Prompt + LLM    │  │
+│  │ Cookies/Auth │   │ Vector Search│   │ Fallback + Save │  │
+│  └──────┬───────┘   └──────┬───────┘   └────────┬────────┘  │
+│         │                  │                    │           │
+│         ▼                  ▼                    ▼           │
+│    ┌────────┐      ┌───────────────┐     ┌──────────────┐  │
+│    │ Redis  │      │ Supabase      │     │ LLM Providers│  │
+│    │ OTPs   │      │ PostgreSQL    │     │ Groq/OpenAI/ │  │
+│    │ Chat   │      │ + pgvector    │     │ Gemini/etc.  │  │
+│    │Memory  │      │ documents     │     │              │  │
+│    └────────┘      └───────────────┘     └──────────────┘  │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Embeddings Module                                      │  │
+│  │ Fetch profile JSON → chunk → embed → store in DB       │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## How the RAG Pipeline Works
+# How the RAG Pipeline Works
 
-### 1. Embedding & Ingestion
+## 1. Ingestion & Embedding
 
-The ingestion step fetches structured profile data (JSON) from an external portfolio API and converts it into searchable vector embeddings stored in Supabase.
+The ingestion layer fetches structured profile data from an external API, converts it into text chunks, generates vector embeddings, and stores them in Supabase.
 
-**Data flow:**
+### Data Flow
 
+```text
+Portfolio API / Profile JSON
+        ↓
+Normalize data
+        ↓
+Chunk by entity type
+        ↓
+Generate embeddings
+        ↓
+Store chunks in Supabase documents table
 ```
-Portfolio API → Fetch JSON → Chunk by entity type → Generate embeddings → Store in pgvector
-```
 
-**Chunking strategy:**
+### Chunking Strategy
 
-Profile data is split into typed chunks based on entity category. Each chunk type uses a strategy suited to its content structure:
+Different data types are chunked differently to improve retrieval quality.
 
-| Entity Type   | Strategy                                  | Overlap |
-|---------------|-------------------------------------------|---------|
-| Personal Info | Sentence-boundary splitting               | 20%     |
-| Experiences   | Per-entry narrative, sentence splitting   | 20%     |
-| Projects      | Per-project with features and tech stack  | 20%     |
-| Education     | Per-institution entry                     | 20%     |
-| Skills        | Grouped list, no overlap needed           | None    |
-| Certificates  | Grouped list, no overlap needed           | None    |
+| Entity Type   | Strategy                                          | Overlap |
+| ------------- | ------------------------------------------------- | ------: |
+| Personal Info | Sentence-aware chunking                           |     20% |
+| Experience    | Per-entry narrative chunking                      |     20% |
+| Projects      | Per-project chunking with features and tech stack |     20% |
+| Education     | Per-institution chunking                          |     20% |
+| Skills        | Grouped list chunks                               |    None |
+| Certificates  | Grouped list chunks                               |    None |
 
-The 20% overlap on narrative content ensures that context at chunk boundaries is preserved during retrieval. For structured list data (skills, certificates), clean grouping without overlap produces better search results.
+### Documents Table Shape
 
-Each chunk is stored as a row in the `documents` table with the following columns:
+Each chunk is stored in the `documents` table with the following structure:
 
-| Column      | Type          | Description                                     |
-|-------------|---------------|-------------------------------------------------|
-| `id`        | `UUID`        | Unique identifier (generated per chunk)         |
-| `content`   | `TEXT`        | The plain-text chunk content                    |
-| `embedding` | `VECTOR(384)` | 384-dimensional vector from `bge-small-en-v1.5` |
-| `type`      | `VARCHAR(50)` | Entity type (personal, experience, project, etc)|
-| `title`     | `VARCHAR(255)`| Human-readable chunk title                      |
+| Column       | Type           | Description                                          |
+| ------------ | -------------- | ---------------------------------------------------- |
+| `id`         | `UUID`         | Unique chunk identifier                              |
+| `content`    | `TEXT`         | Plain-text content of the chunk                      |
+| `embedding`  | `VECTOR(384)`  | Embedding vector generated from `bge-small-en-v1.5`  |
+| `type`       | `VARCHAR(50)`  | Chunk category such as `project`, `experience`, etc. |
+| `title`      | `VARCHAR(255)` | Human-readable title for the chunk                   |
+| `metadata`   | `JSONB`        | Optional extra structured metadata                   |
+| `created_at` | `TIMESTAMPTZ`  | Row creation timestamp                               |
+| `updated_at` | `TIMESTAMPTZ`  | Last update timestamp                                |
 
-**Embedding model:** `BAAI/bge-small-en-v1.5` via HuggingFace Inference API — produces 384-dimensional vectors optimized for semantic similarity tasks.
+### Embedding Model
 
-**Trigger:** `GET /embeddings/data` fetches fresh profile data, clears existing vectors, and re-embeds all chunks.
+* **Model:** `BAAI/bge-small-en-v1.5`
+* **Provider:** HuggingFace Inference API
+* **Vector dimension:** `384`
+
+### Refresh Process
+
+Calling the embeddings refresh endpoint will:
+
+1. Fetch the latest profile data
+2. Re-chunk the content
+3. Generate fresh embeddings
+4. Update the `documents` table in Supabase
 
 ---
 
-### 2. Retrieval
+## 2. Retrieval
 
-When a user sends a chat message, the retrieval step converts the query into the same vector space and finds the most relevant stored chunks.
+When a user sends a chat message, the backend embeds that message into the same vector space and performs a similarity search against the stored profile chunks.
 
-**Data flow:**
+### Data Flow
 
+```text
+User message
+   ↓
+Generate query embedding
+   ↓
+Call Supabase RPC: match_documents(...)
+   ↓
+Get top matching chunks
+   ↓
+Combine retrieved content into a context block
 ```
-User message → Generate query embedding → Supabase RPC (cosine similarity) → Top-K documents → Combined context
-```
 
-**How it works:**
+### Retrieval Process
 
-1. The raw user message is embedded using the same `bge-small-en-v1.5` model.
-2. The embedding is passed to a Supabase PostgreSQL function `match_documents` that computes cosine similarity between the query vector and all stored document vectors.
-3. Documents exceeding the similarity threshold (default: `0.5`) are returned, ordered by similarity score, limited to the top 5 matches.
-4. The `content` fields of matched documents are concatenated into a single `combinedContent` string, separated by double newlines.
+1. The incoming **user message** is embedded using the same embedding model.
+2. That vector is passed to a PostgreSQL RPC function called `match_documents`.
+3. The function compares the query vector against stored document vectors using cosine similarity.
+4. The backend keeps the top relevant matches above the similarity threshold.
+5. The retrieved chunk contents are merged into a single `combinedContent` block, which is passed to the response layer.
 
-**The `match_documents` function (pgvector):**
+### Example `match_documents` Function
 
 ```sql
 CREATE OR REPLACE FUNCTION match_documents(
-    query_embedding VECTOR(384),
-    match_threshold FLOAT DEFAULT 0.75,
-    match_count INT DEFAULT 5
+  query_embedding VECTOR(384),
+  match_threshold FLOAT DEFAULT 0.75,
+  match_count INT DEFAULT 5
 )
-RETURNS TABLE(id UUID, content TEXT, similarity FLOAT, type VARCHAR(50), title VARCHAR(255))
-LANGUAGE plpgsql AS $$
+RETURNS TABLE(
+  id UUID,
+  content TEXT,
+  similarity FLOAT,
+  type VARCHAR(50),
+  title VARCHAR(255)
+)
+LANGUAGE plpgsql
+AS $$
 BEGIN
-    RETURN QUERY
-    SELECT d.id, d.content,
-           (1 - (d.embedding <=> query_embedding)) AS similarity,
-           d.type, d.title
-    FROM documents d
-    WHERE (1 - (d.embedding <=> query_embedding)) > match_threshold
-    ORDER BY (1 - (d.embedding <=> query_embedding)) DESC
-    LIMIT match_count;
+  RETURN QUERY
+  SELECT
+    d.id,
+    d.content,
+    (1 - (d.embedding <=> query_embedding)) AS similarity,
+    d.type,
+    d.title
+  FROM documents d
+  WHERE (1 - (d.embedding <=> query_embedding)) > match_threshold
+  ORDER BY (1 - (d.embedding <=> query_embedding)) DESC
+  LIMIT match_count;
 END;
 $$;
 ```
 
-The `<=>` operator is pgvector's cosine distance operator. The function converts it to similarity by computing `1 - distance`.
+> `d.embedding <=> query_embedding` is pgvector’s cosine distance operator.
+> Similarity is calculated as `1 - distance`.
 
 ---
 
-### 3. Response Generation
+## 3. Response Generation
 
-The retrieved context and the user's recent conversation history are assembled into a system prompt and sent to an LLM for response generation.
+This is the part where the retrieved knowledge and recent chat history are turned into the final conversational response.
 
-**Data flow:**
+## What is used to generate the final answer?
 
+For every `/retrieves/chat` request, the backend builds the final prompt from:
+
+* **the current user message**
+* **the last 8 chat messages loaded from Redis**
+* **the retrieved knowledge-base context from Supabase**
+* **the system/persona prompt**
+
+So the response is **not generated from retrieval alone**. It is generated from the combination of **message + history + retrieved context + prompt**.
+
+### Response Generation Flow
+
+```text
+Current user message
+        + last 8 Redis messages
+        + retrieved context from vector search
+        + system/persona prompt
+                         ↓
+                 Build final prompt
+                         ↓
+               Send to LLM fallback chain
+                         ↓
+                  Receive AI response
+                         ↓
+ Save user message + AI reply back into Redis session history
 ```
-Combined context + Chat history (Redis) + User message → System prompt → LLM Agent → AI response → Save to Redis
+
+### Redis Session Memory
+
+Chat history is stored in Redis using a session-based key, for example:
+
+```text
+chat:{sessionId}
 ```
 
-**Multi-LLM fallback:**
+For every new chat request, the backend:
 
-The system uses `@inngest/agent-kit` to configure multiple LLM providers. If the primary provider fails, the next one in the fallback chain is used:
+1. Loads the **last 8 messages** from Redis for that `sessionId`
+2. Combines those messages with:
 
-| Priority | Provider    | Model                        |
-|----------|-------------|------------------------------|
-| 1        | Groq        | `llama-3.3-70b-versatile`    |
-| 2        | OpenRouter  | `openai/gpt-4o`              |
-| 3        | Google      | `gemini-2.5-flash`           |
-| 4        | OpenAI      | `gpt-4o-mini`                |
-| 5        | Anthropic   | `claude-sonnet-4-20250514`   |
+   * the **current user message**
+   * the **retrieved RAG context**
+   * the **system/persona prompt**
+3. Sends the final assembled prompt to the LLM
+4. Saves **both**:
 
-You only need API keys for the providers you want to use. The system skips any provider without a configured key.
+   * the new **user message**
+   * the new **AI response**
 
-**Session memory:**
+back into Redis after the response is generated.
 
-Chat history is stored per-session in Redis using a `chat:{sessionId}` key. Each request loads the last 8 messages from Redis to maintain conversational context. Both the user message and the AI response are appended to the session after each exchange.
+This gives the assistant **short-term conversation memory** while keeping the long-term knowledge base separate inside Supabase.
+
+### Multi-LLM Fallback Pipeline
+
+The project uses `@inngest/agent-kit` to define a fallback chain of providers.
+If the first model/provider fails, the next configured provider is used automatically.
+
+| Priority | Provider   | Example Model              |
+| -------: | ---------- | -------------------------- |
+|        1 | Groq       | `llama-3.3-70b-versatile`  |
+|        2 | OpenRouter | `openai/gpt-4o`            |
+|        3 | Google     | `gemini-2.5-flash`         |
+|        4 | OpenAI     | `gpt-4o-mini`              |
+|        5 | Anthropic  | `claude-sonnet-4-20250514` |
+
+Only providers with valid API keys configured in `.env` are used.
 
 ---
 
-## Project Structure
+# Project Structure
 
-```
+```text
 src/
-├── app.module.ts                 # Root module, imports all feature modules
-├── app.utils.ts                  # Shared factory functions (Redis, Supabase clients)
-├── main.ts                       # Application entry point
+├── app.module.ts
+├── app.utils.ts
+├── main.ts
 │
-├── embeddings/                   # Embedding & ingestion pipeline
-│   ├── embeddings.module.ts      # Module definition
-│   ├── embeddings.controller.ts  # GET /embeddings/data endpoint
-│   ├── embeddings.service.ts     # Embedding generation, storage, refresh logic
-│   ├── embeddings.guard.ts       # Secret-key auth guard for admin endpoints
-│   ├── embeddings.utils.ts       # Chunking strategies and text processing
-│   ├── embeddings.types.ts       # TypeScript interfaces for profile data
-│   └── embeddings.sql.ts         # SQL schema for documents table and pgvector
+├── embeddings/
+│   ├── embeddings.module.ts
+│   ├── embeddings.controller.ts
+│   ├── embeddings.service.ts
+│   ├── embeddings.guard.ts
+│   ├── embeddings.utils.ts
+│   ├── embeddings.types.ts
+│   └── embeddings.sql.ts
 │
-├── retrieves/                    # Query retrieval pipeline
-│   ├── retrieves.module.ts       # Module definition
-│   ├── retrieves.controller.ts   # POST /retrieves/chat endpoint
-│   ├── retrieves.service.ts      # Query embedding, vector search, context assembly
-│   └── retrieves.guard.ts        # JWT-only auth guard (verifies signature + expiry)
+├── retrieves/
+│   ├── retrieves.module.ts
+│   ├── retrieves.controller.ts
+│   ├── retrieves.service.ts
+│   └── retrieves.guard.ts
 │
-├── response/                     # LLM response generation
-│   ├── response.module.ts        # Module definition (Redis + model providers)
-│   ├── response.service.ts       # Prompt assembly, agent execution, chat storage
-│   ├── response.utils.ts         # LLM model factory with fallback chain
-│   └── response.type.ts          # TypeScript interfaces for AI responses
+├── response/
+│   ├── response.module.ts
+│   ├── response.service.ts
+│   ├── response.utils.ts
+│   └── response.type.ts
 │
-└── user/                         # Authentication (OTP + JWT)
-    ├── user.module.ts            # Module definition
-    ├── user.controller.ts        # POST /user/sendOtp, /user/verifyOtp, DELETE /user/history
-    ├── user.service.ts           # OTP generation, verification, JWT issuance
-    ├── user.dto.ts               # Request validation DTOs
-    └── user.utils.ts             # Resend email client, OTP email template
+└── user/
+    ├── user.module.ts
+    ├── user.controller.ts
+    ├── user.service.ts
+    ├── user.dto.ts
+    └── user.utils.ts
 ```
 
+## Module Responsibilities
+
+### `embeddings/`
+
+Responsible for:
+
+* fetching profile/portfolio JSON
+* chunking the content
+* generating embeddings
+* storing vectors in Supabase
+
+### `retrieves/`
+
+Responsible for:
+
+* accepting chat requests
+* embedding the current user message
+* performing vector search in Supabase
+* returning the retrieved context to the response layer
+
+### `response/`
+
+Responsible for:
+
+* loading the **last 8 chat messages from Redis**
+* combining **user message + Redis history + retrieved context + system prompt**
+* sending the final prompt to the LLM fallback chain
+* saving the latest user and AI messages back into Redis
+
+### `user/`
+
+Responsible for:
+
+* sending OTP emails
+* verifying OTPs
+* issuing JWTs
+* clearing chat history when requested
+
 ---
 
-## Tech Stack
+# Tech Stack
 
-| Component            | Technology                                                    |
-|----------------------|---------------------------------------------------------------|
-| Framework            | [NestJS](https://nestjs.com/) (TypeScript)                   |
-| Database             | [Supabase](https://supabase.com/) (PostgreSQL + pgvector)    |
-| Vector Search        | pgvector cosine similarity via Supabase RPC                  |
-| Embeddings           | `BAAI/bge-small-en-v1.5` via HuggingFace Inference API      |
-| LLM Orchestration    | [@inngest/agent-kit](https://www.inngest.com/agent-kit)      |
-| Session Store        | [Redis](https://redis.io/) (ioredis)                         |
-| Email (OTP)          | [Resend](https://resend.com/)                                |
-| Deployment           | [Vercel](https://vercel.com/) (serverless)                   |
+| Layer                  | Technology                                             |
+| ---------------------- | ------------------------------------------------------ |
+| Framework              | NestJS                                                 |
+| Language               | TypeScript                                             |
+| Database               | Supabase (PostgreSQL + pgvector)                       |
+| Vector Search          | pgvector cosine similarity via Supabase RPC            |
+| Embeddings             | `BAAI/bge-small-en-v1.5` via HuggingFace Inference API |
+| Cache / Session Memory | Redis                                                  |
+| LLM Orchestration      | `@inngest/agent-kit`                                   |
+| Email / OTP            | Resend                                                 |
+| Deployment             | Vercel                                                 |
 
 ---
 
-## Environment Variables
+# Environment Variables
 
 Create a `.env` file in the project root:
 
 ```env
 # Server
 PORT=3000
+NODE_ENV=development
 
-# Supabase — Project Settings → API
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
-
-# Redis — connection string from your Redis provider
-REDIS_URL=redis://default:password@host:port
-
-# HuggingFace — huggingface.co → Settings → Access Tokens
-HF_TOKEN=hf_your_token
-
-# Email delivery — resend.com → API Keys
-RESEND_API_KEY=re_your_key
+# Frontend
+FRONTEND_URL=http://localhost:5173
 
 # Security
 JWT_SECRET=your_jwt_secret
 SECRET_KEY=your_admin_secret_key
 
-# Data source — the API that returns your profile JSON
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+# If your implementation uses a service role for privileged writes, add:
+# SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Redis
+REDIS_URL=redis://default:password@host:port
+
+# HuggingFace
+HF_TOKEN=hf_your_token
+
+# Email / OTP
+RESEND_API_KEY=re_your_key
+
+# Portfolio / metadata source
 SITE_BASE=https://your-site.com/api/metaData
-# Secret for accessing the profile API
-SECRET_KEY=your_profile_api_secret
 
-# Frontend URL (for CORS, when enabled)
-FRONTEND_URL=http://localhost:5173
-
-# LLM Providers — add keys for any or all providers
+# LLM providers
 GROQ_API_KEY=your_groq_key
 OPENROUTER_API_KEY=your_openrouter_key
 GEMINI_API_KEY=your_gemini_key
@@ -265,79 +437,95 @@ OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
+> Keep the README aligned with the actual implementation in your codebase.
+> For example, if your backend only uses the publishable/anon key and not the service role key, keep the README consistent with that.
+
 ---
 
-## Supabase Setup
+# Supabase Setup
 
-Run the following SQL in the Supabase SQL Editor to set up the required tables and functions:
+Run the following SQL in the Supabase SQL Editor:
 
 ```sql
--- Enable pgvector
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Documents table for storing embeddings
 CREATE TABLE IF NOT EXISTS documents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    content TEXT NOT NULL,
-    embedding VECTOR(384),
-    type VARCHAR(50),
-    title VARCHAR(255),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content TEXT NOT NULL,
+  embedding VECTOR(384),
+  type VARCHAR(50),
+  title VARCHAR(255),
+  metadata JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- IVFFlat index for fast cosine similarity search
 CREATE INDEX IF NOT EXISTS documents_embedding_idx
-ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+ON documents
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
 
--- Vector similarity search function
 CREATE OR REPLACE FUNCTION match_documents(
-    query_embedding VECTOR(384),
-    match_threshold FLOAT DEFAULT 0.75,
-    match_count INT DEFAULT 5
+  query_embedding VECTOR(384),
+  match_threshold FLOAT DEFAULT 0.75,
+  match_count INT DEFAULT 5
 )
-RETURNS TABLE(id UUID, content TEXT, similarity FLOAT, type VARCHAR(50), title VARCHAR(255))
-LANGUAGE plpgsql AS $$
+RETURNS TABLE(
+  id UUID,
+  content TEXT,
+  similarity FLOAT,
+  type VARCHAR(50),
+  title VARCHAR(255)
+)
+LANGUAGE plpgsql
+AS $$
 BEGIN
-    RETURN QUERY
-    SELECT d.id, d.content,
-           (1 - (d.embedding <=> query_embedding)) AS similarity,
-           d.type, d.title
-    FROM documents d
-    WHERE (1 - (d.embedding <=> query_embedding)) > match_threshold
-    ORDER BY (1 - (d.embedding <=> query_embedding)) DESC
-    LIMIT match_count;
+  RETURN QUERY
+  SELECT
+    d.id,
+    d.content,
+    (1 - (d.embedding <=> query_embedding)) AS similarity,
+    d.type,
+    d.title
+  FROM documents d
+  WHERE (1 - (d.embedding <=> query_embedding)) > match_threshold
+  ORDER BY (1 - (d.embedding <=> query_embedding)) DESC
+  LIMIT match_count;
 END;
 $$;
 
--- Verified users table (for OTP authentication)
 CREATE TABLE IF NOT EXISTS verified_users (
-    email TEXT PRIMARY KEY,
-    verified_at TIMESTAMP WITH TIME ZONE,
-    last_verified_at TIMESTAMP WITH TIME ZONE
+  email TEXT PRIMARY KEY,
+  verified_at TIMESTAMP WITH TIME ZONE,
+  last_verified_at TIMESTAMP WITH TIME ZONE
 );
 
--- Auto-update trigger for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
+  NEW.updated_at = NOW();
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_documents_updated_at ON documents;
+
 CREATE TRIGGER update_documents_updated_at
-    BEFORE UPDATE ON documents
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+BEFORE UPDATE ON documents
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 ```
 
-**Important:** If Row-Level Security (RLS) is enabled on the `documents` table, either disable it for this table or create a policy that allows the service role to read, insert, and delete rows. Using the Supabase service role key (instead of the anon key) bypasses RLS entirely.
+## RLS Note
+
+If Row-Level Security (RLS) is enabled on the `documents` table, make sure your backend still has permission to read/write embeddings by either:
+
+* creating the required policies, or
+* using a service role key where appropriate
 
 ---
 
-## Installation
+# Installation
 
 ```bash
 # Clone the repository
@@ -347,7 +535,7 @@ cd ragChatBot-Personal
 # Install dependencies
 npm install
 
-# Development (watch mode)
+# Start in development mode
 npm run start:dev
 
 # Production build
@@ -355,25 +543,26 @@ npm run build
 npm run start:prod
 ```
 
-The server starts on the port defined in `.env` (default: `3000`).
-
 ---
 
-## API Reference
+# API Reference
 
-### Authentication
+# Authentication
 
-#### Send OTP
+## 1. Send OTP
 
-```
+```http
 POST /user/sendOtp
 ```
 
-| Field   | Type   | Required | Description              |
-|---------|--------|----------|--------------------------|
-| `email` | string | Yes      | Email address for OTP    |
+### Request Body
 
-**Response:**
+| Field   | Type     | Required | Description                      |
+| ------- | -------- | -------: | -------------------------------- |
+| `email` | `string` |      Yes | Email address to receive the OTP |
+
+### Example Response
+
 ```json
 {
   "status": "200",
@@ -381,18 +570,23 @@ POST /user/sendOtp
 }
 ```
 
-#### Verify OTP
+---
 
-```
+## 2. Verify OTP
+
+```http
 POST /user/verifyOtp
 ```
 
-| Field   | Type   | Required | Description              |
-|---------|--------|----------|--------------------------|
-| `email` | string | Yes      | Email used for OTP       |
-| `otp`   | string | Yes      | 6-digit OTP from email   |
+### Request Body
 
-**Response:**
+| Field   | Type     | Required | Description                        |
+| ------- | -------- | -------: | ---------------------------------- |
+| `email` | `string` |      Yes | Email used when requesting the OTP |
+| `otp`   | `string` |      Yes | 6-digit OTP code                   |
+
+### Example Response
+
 ```json
 {
   "status": "200",
@@ -401,53 +595,98 @@ POST /user/verifyOtp
 }
 ```
 
-**Note:** The backend sets the JWT as an HTTP-only cookie (`token=...`) valid for 24 hours. The cookie is verified entirely on the server using the JWT signature and expiry — **no Redis lookup is performed**. The frontend must include credentials (`credentials: 'include'`) in subsequent requests. The `Authorization: Bearer <token>` header is also accepted as a fallback.
+## Authentication Behavior
 
-The frontend should store the returned `sessionId` (e.g., in `localStorage` or memory) and pass it to the chat endpoint to maintain conversation history.
+After successful OTP verification:
+
+* the backend issues a JWT
+* the JWT is stored in an **HTTP-only cookie**
+* the cookie is typically valid for **24 hours**
+* the frontend should send future requests with `credentials: 'include'`
+
+The returned `sessionId` should be stored on the frontend and reused for chat requests so the Redis chat history stays attached to the same conversation.
 
 ---
 
-### Chat
+# Chat
 
-#### Send Message
+## 3. Send Chat Message
 
-```
+```http
 POST /retrieves/chat
 ```
-*(Requires HTTP-only `token` cookie or `Authorization: Bearer <JWT_TOKEN>`)*
 
-| Field       | Type   | Required | Description                              |
-|-------------|--------|----------|------------------------------------------|
-| `message`   | string | Yes      | User's question or message               |
-| `sessionId` | string | Yes       | Session identifier for conversation memory |
+**Requires authentication** via either:
 
-**Response:**
+* a valid HTTP-only `token` cookie, or
+* `Authorization: Bearer <JWT>`
+
+### Request Body
+
+| Field       | Type     | Required | Description                                    |
+| ----------- | -------- | -------: | ---------------------------------------------- |
+| `message`   | `string` |      Yes | Current user message                           |
+| `sessionId` | `string` |      Yes | Session identifier used for Redis chat history |
+
+### Example Request
+
 ```json
 {
-  "message": "What technologies do you use?",
+  "message": "What projects have you built with NestJS?",
+  "sessionId": "a1b2c3d4-e5f6-7890-1234-56789abcdef0"
+}
+```
+
+### Example Response
+
+```json
+{
+  "message": "What projects have you built with NestJS?",
   "response": {
-    "aiMessage": "I mainly work with TypeScript, NestJS, and Next.js for my projects.",
+    "aiMessage": "I have built projects using NestJS for backend APIs and structured service-based applications...",
     "combinedContent": "..."
   }
 }
 ```
 
-The `sessionId` groups conversation history in Redis. The frontend should use the `sessionId` returned from the `/user/verifyOtp` response to maintain the context of the user's chat. If a `sessionId` is not provided, the server will treat each message as an isolated query.
+## What Happens Internally on `/retrieves/chat`
+
+For each request, the backend:
+
+1. takes the **current `message`**
+2. embeds it for vector retrieval
+3. fetches relevant chunks from Supabase
+4. loads the **last 8 chat messages** from Redis using `sessionId`
+5. combines:
+
+   * the current user message
+   * Redis history
+   * retrieved knowledge-base content
+   * the system/persona prompt
+6. sends the final prompt to the LLM fallback chain
+7. saves the latest **user message** and **AI response** back into Redis
+
+If no `sessionId` is provided, the request becomes effectively stateless and previous conversation context cannot be loaded.
 
 ---
 
-### Embeddings Management
+# Embeddings Management
 
-#### Refresh Embeddings
+## 4. Refresh Embeddings
 
-```
+```http
 GET /embeddings/data?secret=<SECRET_KEY>
 ```
 
-Fetches the latest profile data, re-chunks it, and updates the vector store.
+This endpoint:
 
+* fetches the latest profile data
+* re-chunks the content
+* regenerates embeddings
+* updates the vector store
 
-**Response:**
+### Example Response
+
 ```json
 {
   "message": "Embeddings refreshed successfully",
@@ -458,18 +697,22 @@ Fetches the latest profile data, re-chunks it, and updates the vector store.
 
 ---
 
-### History Management
+# History Management
 
-#### Delete Chat History
+## 5. Delete Chat History
 
-```
+```http
 DELETE /user/history
-| Field   | Type   | Required | Description              |
-|---------|--------|----------|--------------------------|
-| `sessionId` | string | Yes      |To track the session id stored in localStorage by the frontend        |
 ```
 
-**Response:**
+### Request Body
+
+| Field       | Type     | Required | Description                                           |
+| ----------- | -------- | -------: | ----------------------------------------------------- |
+| `sessionId` | `string` |      Yes | Session id whose Redis chat history should be deleted |
+
+### Example Response
+
 ```json
 {
   "status": "200",
@@ -479,11 +722,11 @@ DELETE /user/history
 
 ---
 
-## Deployment
+# Deployment
 
-### Vercel
+## Vercel
 
-The project includes a `vercel.json` for serverless deployment:
+The project can be deployed to Vercel using a configuration similar to:
 
 ```json
 {
@@ -497,19 +740,39 @@ The project includes a `vercel.json` for serverless deployment:
 }
 ```
 
-Set all environment variables in the Vercel dashboard under **Settings → Environment Variables**.
-
-### Other Platforms
-
-For traditional server deployments (VPS, Docker, etc.):
-
-```bash
-npm run build
-NODE_ENV=production node dist/main.js
-```
+Add all required environment variables in the Vercel dashboard under **Project Settings → Environment Variables**.
 
 ---
 
-## License
+# Important Notes
+
+## 1. This is a Personal RAG system, not a generic chatbot
+
+The knowledge base is built from the profile owner’s own data.
+The model is expected to answer primarily from retrieved portfolio/profile content plus recent conversation history.
+
+## 2. Final responses are not based on retrieval alone
+
+The response is generated from:
+
+* **the current user message**
+* **the last 8 chat messages from Redis**
+* **the retrieved vector-search context**
+* **the system/persona prompt**
+
+This is important because it explains why the assistant can stay conversational while still remaining grounded in retrieved profile data.
+
+## 3. Redis is used for short-term conversation memory
+
+Redis does **not** store the long-term knowledge base.
+It stores session-based chat history so the assistant can preserve recent conversational context across turns.
+
+## 4. Supabase stores the long-term retrieval knowledge base
+
+The actual searchable knowledge base lives in Supabase inside the `documents` table as vectorized chunks.
+
+---
+
+# License
 
 This project is open-sourced under the [MIT License](LICENSE).
